@@ -103,4 +103,4 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: npm test -- --runInBand
+        run: npm test
