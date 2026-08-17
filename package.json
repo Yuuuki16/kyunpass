@@ -1,0 +1,11 @@
+{
+  "name": "kyunpass",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "echo \"TODO: configure lint\"",
+    "format:check": "echo \"TODO: configure format check\"",
+    "openapi:validate": "echo \"TODO: configure OpenAPI validation\"",
+    "test": "echo \"TODO: configure tests\""
+  }
+}
