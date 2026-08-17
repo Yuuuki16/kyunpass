@@ -3,9 +3,35 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "lint": "echo \"TODO: configure lint\"",
-    "format:check": "echo \"TODO: configure format check\"",
+    "dev": "next dev front",
+    "build": "next build front",
+    "start": "next start front",
+    "lint": "eslint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "openapi:validate": "echo \"TODO: configure OpenAPI validation\"",
-    "test": "echo \"TODO: configure tests\""
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "16.3.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/dom": "^10",
+    "@testing-library/jest-dom": "^7",
+    "@testing-library/react": "^16",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "jsdom": "^26",
+    "prettier": "^3",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4"
   }
 }

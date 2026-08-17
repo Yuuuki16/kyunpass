@@ -78,7 +78,6 @@ git push -u origin <ブランチ名>
 3. `gh pr create --base develop --title "<タイトル>" --body "<本文>"` を実行。
 4. PR URL を報告。
 
-
 ### Step 7: docsレビュー
 
 `reviewing-docs` は、このPRで変更されたドキュメントについて、内容の網羅性や記述の明瞭さ、フォーマット崩れ、リンク切れなどを自動チェックするスキルであり、その検出結果（指摘件数）をもとに次のように振る舞う。
