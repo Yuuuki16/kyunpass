@@ -10,11 +10,13 @@ MVP機能
 
 ## フロントエンド構成 App Router 3層
 
-- `src/app/**/page.tsx`: ルーティング専用。対応する Feature コンポーネントをそのまま返す。
-- `src/features/**`: 画面単位のルートコンポーネント（`XxxFeature.tsx`）。状態管理やユースケース制御を担い、`components` を組み合わせて UI を構成する。
-- `src/components/**`: 再利用可能な純粋 UI 部品。ビジネスフローの起点にはならず、`features` からのみ利用する（`components` → `features` の逆依存は禁止。ESLint で強制）。
+Next.js プロジェクト本体は `front/` 配下に置く。
 
-新規ページを作る場合は `src/features/<page>/XxxFeature.tsx` を追加し、`src/app/**/page.tsx` で委譲する。UI 部品は `src/components/` に配置する。
+- `front/src/app/**/page.tsx`: ルーティング専用。対応する Feature コンポーネントをそのまま返す。
+- `front/src/features/**`: 画面単位のルートコンポーネント（`XxxFeature.tsx`）。状態管理やユースケース制御を担い、`components` を組み合わせて UI を構成する。
+- `front/src/components/**`: 再利用可能な純粋 UI 部品。ビジネスフローの起点にはならず、`features` からのみ利用する（`components` → `features` の逆依存は禁止。ESLint で強制）。
+
+新規ページを作る場合は `front/src/features/<page>/XxxFeature.tsx` を追加し、`front/src/app/**/page.tsx` で委譲する。UI 部品は `front/src/components/` に配置する。
 
 ### セットアップ
 

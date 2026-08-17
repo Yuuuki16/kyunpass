@@ -6,8 +6,16 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    // Next.js プロジェクトルートは front/ に置いているため明示する
+    settings: {
+      next: {
+        rootDir: "front",
+      },
+    },
+  },
+  {
     // components は features に依存してはいけない（components → features の逆依存禁止）
-    files: ["src/components/**/*.{ts,tsx}"],
+    files: ["front/src/components/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -18,10 +26,10 @@ const eslintConfig = defineConfig([
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
+    "**/.next/**",
+    "**/out/**",
+    "**/build/**",
+    "**/next-env.d.ts",
   ]),
 ]);
 
