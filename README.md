@@ -140,15 +140,15 @@ npm test               # Vitest + Testing Libraryによるユニットテスト
 
 すべてリポジトリのルートディレクトリで実行してください。
 
-| コマンド | 説明 |
-| --- | --- |
-| `npm run dev` | 開発サーバーを起動（ホットリロードあり） |
-| `npm run build` | 本番用にビルド |
-| `npm run start` | ビルド済みアプリを起動（事前に `npm run build` が必要） |
-| `npm run lint` | ESLint で静的解析 |
-| `npm run format` | Prettier でコードを自動整形 |
+| コマンド               | 説明                                                      |
+| ---------------------- | --------------------------------------------------------- |
+| `npm run dev`          | 開発サーバーを起動（ホットリロードあり）                  |
+| `npm run build`        | 本番用にビルド                                            |
+| `npm run start`        | ビルド済みアプリを起動（事前に `npm run build` が必要）   |
+| `npm run lint`         | ESLint で静的解析                                         |
+| `npm run format`       | Prettier でコードを自動整形                               |
 | `npm run format:check` | Prettier のフォーマット崩れをチェック（自動修正はしない） |
-| `npm test` | Vitest + Testing Library でユニットテストを実行 |
+| `npm test`             | Vitest + Testing Library でユニットテストを実行           |
 
 これらのコマンドは CI（`.github/workflows/ci.yml`）でも実行されるため、PRを出す前にローカルで通しておくと手戻りが少なくなります。
 
