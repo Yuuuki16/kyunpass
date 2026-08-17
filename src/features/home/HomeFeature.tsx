@@ -3,7 +3,6 @@
 // import { useState } from "react";
 // import { ScoreBadge } from "@/components/ScoreBadge";
 
-
 export function HomeFeature() {
   // const [score] = useState(0);
 

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Branch or commit to deploy'
+        description: "Branch or commit to deploy"
         required: false
-        default: ''
+        default: ""
         type: string
 
 permissions:
