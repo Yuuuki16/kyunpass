@@ -136,6 +136,33 @@ npm run format:check  # Prettierによるフォーマットチェック
 npm test               # Vitest + Testing Libraryによるユニットテスト
 ```
 
+### Supabaseのセットアップ
+
+このプロジェクトはデータストアに [Supabase](https://supabase.com/) を使います（現時点では認証機能は未導入で、DB利用のみ）。
+
+1. [supabase.com](https://supabase.com/) でアカウントを作成し、新規プロジェクトを作成します。
+2. プロジェクトの `Settings > API` から `Project URL` と `anon public` キーを確認します。
+3. `front/.env.example` を `front/.env` としてコピーし、値を設定します。
+
+   ```bash
+   cp front/.env.example front/.env
+   ```
+
+4. `front/.env` に取得した値を貼り付けます。
+
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxx.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=xxxxxxxx
+   ```
+
+`front/.env` は `.gitignore` で除外されているためコミットされません。
+
+DB関連のコード（Supabaseクライアントや、今後追加するマイグレーション/スキーマ定義など）はリポジトリ直下の `db/` に置きます。Supabaseクライアントは `db/supabase/client.ts` にあり、`front/` 側からは `@db/supabase/client` としてimportして使います（`front/tsconfig.json` の `paths` でエイリアス設定済み）。
+
+```ts
+import { supabase } from "@db/supabase/client";
+```
+
 ### 主要コマンド一覧
 
 すべてリポジトリのルートディレクトリで実行してください。
