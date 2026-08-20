@@ -163,6 +163,45 @@ DB関連のコード（Supabaseクライアントや、今後追加するマイ�
 import { supabase } from "@db/supabase/client";
 ```
 
+### バックエンド（FastAPI）のセットアップ
+
+テキスト分類モデルを使ったAPIサーバーはリポジトリ直下の `backend/` に置きます。Pythonのパッケージ管理には [uv](https://docs.astral.sh/uv/) を使います。
+
+1. uv をインストールします（未導入の場合）。
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. `backend/` ディレクトリで依存関係をインストールします。
+
+   ```bash
+   cd backend
+   uv sync
+   ```
+
+   `pyproject.toml` / `uv.lock` の内容に従って、Python 3.12の仮想環境（`.venv/`）が作成され、必要なライブラリ（FastAPI, uvicornなど）がインストールされます。
+
+3. 開発サーバーを起動します。
+
+   ```bash
+   uv run uvicorn app.main:app --reload
+   ```
+
+   [http://localhost:8000/health](http://localhost:8000/health) にアクセスして `{"status":"ok"}` が返ればOKです。
+
+4. テストを実行します。
+
+   ```bash
+   uv run pytest
+   ```
+
+5. Lintを実行します。
+
+   ```bash
+   uv run ruff check .
+   ```
+
 ### 主要コマンド一覧
 
 すべてリポジトリのルートディレクトリで実行してください。
