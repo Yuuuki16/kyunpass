@@ -204,13 +204,12 @@ import { supabase } from "@db/supabase/client";
 
 ### バックエンドをDockerで起動する
 
-`uv sync` の代わりにDockerでも起動できます。ローカルにPython環境を作りたくない場合や、本番相当の環境で動作確認したい場合に使ってください。
+`uv sync` の代わりにDockerでも起動できます。ローカルにPython環境を作りたくない場合や、本番相当の環境で動作確認したい場合に使ってください。Docker関連のファイルはリポジトリ直下の `docker/` にまとめています。
 
-1. `backend/` ディレクトリでイメージをビルドします。
+1. **リポジトリのルートディレクトリ**でイメージをビルドします。
 
    ```bash
-   cd backend
-   docker build -t kyunpass-backend .
+   docker build -f docker/backend.Dockerfile -t kyunpass-backend .
    ```
 
 2. コンテナを起動します。
