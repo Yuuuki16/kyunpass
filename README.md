@@ -209,7 +209,7 @@ import { supabase } from "@db/supabase/client";
 1. **リポジトリのルートディレクトリ**でイメージをビルドします。
 
    ```bash
-   docker build -f docker/backend.Dockerfile -t kyunpass-backend backend/
+   docker build -f docker/backend.Dockerfile -t kyunpass-backend .
    ```
 
 2. コンテナを起動します。
