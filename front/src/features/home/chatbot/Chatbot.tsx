@@ -46,12 +46,17 @@ type Answer = {
 export function Chatbot() {
   const [answers, setAnswers] = useState<Answer[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const firstOptionRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "nearest",
     });
+
+    if (answers.length > 0 && answers.length < questions.length) {
+      firstOptionRef.current?.focus();
+    }
   }, [answers.length]);
 
   const handleAnswer = (questionId: QuestionId, label: string) => {
@@ -128,9 +133,12 @@ export function Chatbot() {
                           <legend className="sr-only">
                             {question.message}の選択肢
                           </legend>
-                          {question.options.map((option) => (
+                          {question.options.map((option, optionIndex) => (
                             <button
                               key={option}
+                              ref={
+                                optionIndex === 0 ? firstOptionRef : undefined
+                              }
                               type="button"
                               onClick={() => handleAnswer(question.id, option)}
                               className="min-h-9 rounded-lg border border-[#FF99B4] bg-white px-3 py-1.5 text-left text-[14px] leading-5 text-[#D4537E]"
