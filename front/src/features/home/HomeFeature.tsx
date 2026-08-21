@@ -1,8 +1,14 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
+import { M_PLUS_Rounded_1c } from "next/font/google";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
+
+const mPlusRounded1c = M_PLUS_Rounded_1c({
+  weight: ["400", "700"],
+  subsets: ["latin"],
+});
 
 export function HomeFeature() {
   const [fileName, setFileName] = useState<string | null>(null);
@@ -13,7 +19,9 @@ export function HomeFeature() {
   };
 
   return (
-    <div className="relative mx-auto min-h-dvh w-full max-w-[430px] overflow-hidden bg-[#F5F5F5]">
+    <div
+      className={`${mPlusRounded1c.className} relative mx-auto min-h-dvh w-full max-w-[430px] overflow-hidden bg-[#F5F5F5]`}
+    >
       <Header />
 
       <div
