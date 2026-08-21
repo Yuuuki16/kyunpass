@@ -42,7 +42,7 @@ export function Result() {
           </h2>
 
           <div className="mt-2 flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center rounded-[20px] bg-[#FBCFE8] px-[10px] text-[12px] leading-[17px] text-white">
-            
+            test
           </div>
 
           <button
