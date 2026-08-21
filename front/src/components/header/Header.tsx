@@ -2,7 +2,7 @@ import Image from "next/image";
 
 export function Header() {
   return (
-    <header className="relative mx-auto h-20 w-full max-w-[402px] shrink-0 overflow-hidden border-b border-solid border-[#00000033] bg-[#FBCFE8]">
+    <header className="relative mx-auto h-20 w-full max-w-[430px] shrink-0 overflow-hidden border-b border-solid border-[#00000033] bg-[#FBCFE8]">
       <Image
         src="/header/kyunpass-icon.svg"
         alt=""
