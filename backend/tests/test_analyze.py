@@ -115,6 +115,21 @@ def test_analyze_rejects_when_unknown_speaker_ratio_too_high() -> None:
     assert response.status_code == 422
 
 
+def test_analyze_rejects_when_unparsed_line_ratio_too_high() -> None:
+    lines = ["自分: こんにちは", "相手: どうも"] + [f"名前も区切りも無いゴミ行{i}" for i in range(6)]
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "\n".join(lines),
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_analyze_rejects_same_user_and_other_name() -> None:
     response = client.post(
         "/analyze",
