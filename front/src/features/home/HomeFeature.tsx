@@ -1,9 +1,17 @@
 "use client";
 
+import { useState, type ChangeEvent } from "react";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 
 export function HomeFeature() {
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    setFileName(file ? file.name : null);
+  };
+
   return (
     <div className="relative mx-auto min-h-dvh w-full max-w-[430px] overflow-hidden bg-[#F5F5F5]">
       <Header />
@@ -21,7 +29,17 @@ export function HomeFeature() {
             調査したいテキストをアップロードしてください
           </p>
 
-          <div className="mt-[18px] flex h-[196px] w-[280px] max-w-[calc(100%_-_70px)] items-center justify-center rounded-[20px] border border-dotted border-[#171717] bg-white">
+          <label
+            htmlFor="text-file-upload"
+            className="mt-[18px] flex h-[196px] w-[280px] max-w-[calc(100%_-_70px)] cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dotted border-[#171717] bg-white"
+          >
+            <input
+              id="text-file-upload"
+              type="file"
+              accept=".txt,text/plain"
+              className="hidden"
+              onChange={handleFileChange}
+            />
             <svg
               aria-hidden="true"
               viewBox="0 0 56 56"
@@ -43,7 +61,12 @@ export function HomeFeature() {
                 strokeLinejoin="round"
               />
             </svg>
-          </div>
+            {fileName && (
+              <p className="mt-2 max-w-[calc(100%_-_32px)] truncate px-2 text-center text-[12px] leading-[17px] text-[#4B4B4B]">
+                {fileName}
+              </p>
+            )}
+          </label>
 
           <button
             type="button"
