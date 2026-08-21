@@ -1,4 +1,4 @@
-import { Result } from "@/features/home/result/result";
+import { Result } from "@/features/result/result";
 
 export default function Page() {
   return <Result />;
