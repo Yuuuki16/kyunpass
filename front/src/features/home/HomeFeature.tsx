@@ -43,7 +43,9 @@ export function HomeFeature() {
 
       if (!response.ok) throw new Error("送信に失敗しました");
 
+      await response.json();
       setStatus("idle");
+      router.push("/result");
     } catch {
       setStatus("error");
       router.push("/");
