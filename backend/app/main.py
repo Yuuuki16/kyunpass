@@ -126,11 +126,11 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=422, detail="Talk history must contain at least one message from the other person.")
     if not any(m.speaker == "USER" for m in messages):
         raise HTTPException(status_code=422, detail="talk_history内にuser_nameと一致する発言が見つかりませんでした。表記を確認してください。")
-    text_messages = [m for m in messages if m.kind == "text"]
-    unknown_text_messages = [m for m in text_messages if m.speaker == "UNKNOWN"]
+    ratio_check_messages = [m for m in messages if m.kind in ("text", "unparsed")]
+    unknown_ratio_check_messages = [m for m in ratio_check_messages if m.speaker == "UNKNOWN"]
     if (
-        len(text_messages) >= MIN_TEXT_MESSAGES_FOR_RATIO_CHECK
-        and len(unknown_text_messages) / len(text_messages) > UNKNOWN_RATIO_THRESHOLD
+        len(ratio_check_messages) >= MIN_TEXT_MESSAGES_FOR_RATIO_CHECK
+        and len(unknown_ratio_check_messages) / len(ratio_check_messages) > UNKNOWN_RATIO_THRESHOLD
     ):
         raise HTTPException(
             status_code=422,
