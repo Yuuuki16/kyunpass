@@ -60,3 +60,27 @@ def test_analyze_rejects_unknown_context_option() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_analyze_accepts_real_line_export_format() -> None:
+    talk_history = (
+        "[LINE] 相手とのトーク履歴\n"
+        "保存日時：2026/08/21 11:59\n"
+        "\n"
+        "2025/04/18(金)\n"
+        "12:08\t自分\t今度会える？\n"
+        "12:09\t相手\tありがとう！また会おう\n"
+    )
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": talk_history,
+        },
+    )
+
+    assert response.status_code == 200
+    speakers = [message["speaker"] for message in response.json()["separated_messages"]]
+    assert speakers == ["USER", "OTHER"]

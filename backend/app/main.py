@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
+
+from app.line_parser import parse as parse_talk_history
 
 app = FastAPI(title="kyunpass API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -41,6 +42,7 @@ class AnalyzeRequest(BaseModel):
 class SeparatedMessage(BaseModel):
     speaker: Literal["USER", "OTHER", "UNKNOWN"]
     text: str
+    kind: Literal["text", "media", "call", "reaction", "system", "unparsed"] = "text"
 
 class AnalyzeResponse(BaseModel):
 
@@ -60,20 +62,8 @@ def coefficient(group: str, option: str) -> float:
         raise HTTPException(status_code=422, detail=f"Invalid {group} option: {option}") from error
 
 def separate_speakers(history: str, user_name: str, other_name: str) -> list[SeparatedMessage]:
-    pattern = re.compile(r"^(?:\[[^\]]+\]\s*)?([^:\t：]+)\s*[:：\t]\s*(.+)$")
-    result: list[SeparatedMessage] = []
-    for raw in history.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        match = pattern.match(line)
-        if not match:
-            result.append(SeparatedMessage(speaker="UNKNOWN", text=line))
-            continue
-        name, text = (part.strip() for part in match.groups())
-        speaker: Literal["USER", "OTHER", "UNKNOWN"] = "USER" if name == user_name else "OTHER" if name == other_name else "UNKNOWN"
-        result.append(SeparatedMessage(speaker=speaker, text=text))
-    return result
+    parsed = parse_talk_history(history, user_name, other_name)
+    return [SeparatedMessage(speaker=m.speaker, text=m.text, kind=m.kind) for m in parsed.messages]
 
 def load_patterns() -> list[dict[str, object]]:
     path = Path(__file__).resolve().parents[2] / "db" / "patterns.json"
@@ -84,7 +74,7 @@ def load_patterns() -> list[dict[str, object]]:
         return []
 
 def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
-    text = "\n".join(m.text for m in messages if m.speaker == "OTHER")
+    text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
     return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
 
 def infer_with_llm(messages: list[SeparatedMessage], patterns: list[dict[str, object]]) -> tuple[dict[str, int], str] | None:
