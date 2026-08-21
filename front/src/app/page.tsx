@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HomeFeature } from "@/features/home/HomeFeature";
+import { HomeFeature } from "@/features/home/home";
 import { Title } from "@/features/home/title/Title";
 
 const SPLASH_DURATION_MS = 2000;
