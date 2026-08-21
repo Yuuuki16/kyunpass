@@ -88,6 +88,7 @@ def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
     return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
 
 def infer_with_llm(messages: list[SeparatedMessage], patterns: list[dict[str, object]]) -> tuple[dict[str, int], str] | None:
+    return None  # LLM呼び出しを一時停止中。常にフォールバック(モック)を使う。
     if not os.getenv("OPENAI_API_KEY"):
         return None
     try:
