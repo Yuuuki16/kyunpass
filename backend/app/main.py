@@ -8,12 +8,15 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.line_parser import parse as parse_talk_history
 
 app = FastAPI(title="kyunpass API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+UNKNOWN_RATIO_THRESHOLD = 0.5
+MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -38,6 +41,12 @@ class AnalyzeRequest(BaseModel):
     @classmethod
     def strip_names(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def check_names_distinct(self) -> AnalyzeRequest:
+        if self.user_name == self.other_name:
+            raise ValueError("user_name and other_name must be different.")
+        return self
 
 class SeparatedMessage(BaseModel):
     speaker: Literal["USER", "OTHER", "UNKNOWN"]
@@ -115,6 +124,18 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=422, detail="Talk history must contain at least one message.")
     if not any(m.speaker == "OTHER" for m in messages):
         raise HTTPException(status_code=422, detail="Talk history must contain at least one message from the other person.")
+    if not any(m.speaker == "USER" for m in messages):
+        raise HTTPException(status_code=422, detail="talk_history内にuser_nameと一致する発言が見つかりませんでした。表記を確認してください。")
+    text_messages = [m for m in messages if m.kind == "text"]
+    unknown_text_messages = [m for m in text_messages if m.speaker == "UNKNOWN"]
+    if (
+        len(text_messages) >= MIN_TEXT_MESSAGES_FOR_RATIO_CHECK
+        and len(unknown_text_messages) / len(text_messages) > UNKNOWN_RATIO_THRESHOLD
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="発言者名がトーク履歴内の表記と一致しない行が多数あります。user_name/other_nameを確認してください。",
+        )
     patterns = load_patterns()
     llm_result = infer_with_llm(messages, patterns)
     values, llm_evaluation = llm_result or (fallback_variables(messages), "")

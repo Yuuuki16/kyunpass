@@ -84,3 +84,46 @@ def test_analyze_accepts_real_line_export_format() -> None:
     assert response.status_code == 200
     speakers = [message["speaker"] for message in response.json()["separated_messages"]]
     assert speakers == ["USER", "OTHER"]
+
+
+def test_analyze_rejects_when_user_name_never_appears() -> None:
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "相手: こんにちは\n相手: 元気？",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_analyze_rejects_when_unknown_speaker_ratio_too_high() -> None:
+    lines = ["自分: こんにちは", "相手: どうも"] + [f"だれか{i}: メッセージ{i}" for i in range(6)]
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "\n".join(lines),
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_analyze_rejects_same_user_and_other_name() -> None:
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "同じ",
+            "other_name": "同じ",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "同じ: こんにちは",
+        },
+    )
+
+    assert response.status_code == 422
