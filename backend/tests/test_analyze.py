@@ -34,6 +34,20 @@ def test_analyze_separates_speakers_and_calculates_score() -> None:
   )
 
 
+def test_analyze_rejects_talk_history_without_other_speaker() -> None:
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 好き\n自分: また会おう",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_analyze_rejects_unknown_context_option() -> None:
     response = client.post(
         "/analyze",

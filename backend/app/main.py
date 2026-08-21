@@ -84,7 +84,7 @@ def load_patterns() -> list[dict[str, object]]:
         return []
 
 def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
-    text = "\n".join(m.text for m in messages if m.speaker == "OTHER") or "\n".join(m.text for m in messages)
+    text = "\n".join(m.text for m in messages if m.speaker == "OTHER")
     return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
 
 def infer_with_llm(messages: list[SeparatedMessage], patterns: list[dict[str, object]]) -> tuple[dict[str, int], str] | None:
@@ -123,6 +123,8 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     messages = separate_speakers(request.talk_history, request.user_name, request.other_name)
     if not messages:
         raise HTTPException(status_code=422, detail="Talk history must contain at least one message.")
+    if not any(m.speaker == "OTHER" for m in messages):
+        raise HTTPException(status_code=422, detail="Talk history must contain at least one message from the other person.")
     patterns = load_patterns()
     llm_result = infer_with_llm(messages, patterns)
     values, llm_evaluation = llm_result or (fallback_variables(messages), "")
