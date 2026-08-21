@@ -1,4 +1,4 @@
-import { Title } from "@/features/home/title/Title";
+import { Title } from "@/features/title/Title";
 
 export default function Page() {
   return <Title />;

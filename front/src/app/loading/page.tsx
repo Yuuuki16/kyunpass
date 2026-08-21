@@ -1,4 +1,4 @@
-import { Loading } from "@/features/home/loading/Loading";
+import { Loading } from "@/features/loading/Loading";
 
 export default function Page() {
   return <Loading />;
