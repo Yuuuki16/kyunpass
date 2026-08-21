@@ -10,12 +10,37 @@ const mPlusRounded1c = M_PLUS_Rounded_1c({
   subsets: ["latin"],
 });
 
+type SubmitStatus = "idle" | "submitting" | "error";
+
 export function HomeFeature() {
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<SubmitStatus>("idle");
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    setFileName(file ? file.name : null);
+    setFile(event.target.files?.[0] ?? null);
+    setStatus("idle");
+  };
+
+  const handleSubmit = async () => {
+    if (!file) return;
+
+    setStatus("submitting");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/investigate`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("送信に失敗しました");
+
+      setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
   };
 
   return (
@@ -69,19 +94,27 @@ export function HomeFeature() {
                 strokeLinejoin="round"
               />
             </svg>
-            {fileName && (
+            {file && (
               <p className="mt-2 max-w-[calc(100%_-_32px)] truncate px-2 text-center text-[12px] leading-[17px] text-[#4B4B4B]">
-                {fileName}
+                {file.name}
               </p>
             )}
           </label>
 
           <button
             type="button"
-            className="mt-[18px] h-16 w-[260px] max-w-[calc(100%_-_90px)] rounded-lg bg-[#FF99B4] text-[32px] leading-none font-bold text-white shadow-[0_4px_4px_rgba(0,0,0,0.25)]"
+            disabled={!file || status === "submitting"}
+            onClick={handleSubmit}
+            className="mt-[18px] h-16 w-[260px] max-w-[calc(100%_-_90px)] rounded-lg bg-[#FF99B4] text-[32px] leading-none font-bold text-white shadow-[0_4px_4px_rgba(0,0,0,0.25)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             調査する
           </button>
+
+          {status === "error" && (
+            <p className="mt-2 text-center text-[12px] leading-[17px] text-red-500">
+              送信に失敗しました。もう一度お試しください。
+            </p>
+          )}
         </section>
 
         <p className="mt-[67px] text-center text-[20px] leading-[29px] font-bold text-[#FF99B4]">
