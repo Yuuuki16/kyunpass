@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -130,3 +130,10 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     k = int(f_score * g)
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
   similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values))
+
+@app.post("/investigate")
+async def investigate(file: UploadFile) -> dict[str, str]:
+    if not (file.filename or "").lower().endswith(".txt"):
+        raise HTTPException(status_code=400, detail="txtファイルのみアップロードできます")
+
+    return {"status": "received", "filename": file.filename or ""}

@@ -202,6 +202,24 @@ import { supabase } from "@db/supabase/client";
    uv run ruff check .
    ```
 
+### バックエンドをDockerで起動する
+
+`uv sync` の代わりにDockerでも起動できます。ローカルにPython環境を作りたくない場合や、本番相当の環境で動作確認したい場合に使ってください。Docker関連のファイルはリポジトリ直下の `docker/` にまとめています。
+
+1. **リポジトリのルートディレクトリ**でイメージをビルドします。
+
+   ```bash
+   docker build -f docker/backend.Dockerfile -t kyunpass-backend .
+   ```
+
+2. コンテナを起動します。
+
+   ```bash
+   docker run --rm -p 8000:8000 kyunpass-backend
+   ```
+
+   [http://localhost:8000/health](http://localhost:8000/health) にアクセスして `{"status":"ok"}` が返ればOKです。
+
 ### 主要コマンド一覧
 
 すべてリポジトリのルートディレクトリで実行してください。
