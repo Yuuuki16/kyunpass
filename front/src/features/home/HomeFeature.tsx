@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
+import { useRouter } from "next/navigation";
 import { M_PLUS_Rounded_1c } from "next/font/google";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
@@ -13,6 +14,7 @@ const mPlusRounded1c = M_PLUS_Rounded_1c({
 type SubmitStatus = "idle" | "submitting" | "error";
 
 export function HomeFeature() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<SubmitStatus>("idle");
 
@@ -25,6 +27,7 @@ export function HomeFeature() {
     if (!file) return;
 
     setStatus("submitting");
+    router.push("/loading");
 
     try {
       const formData = new FormData();
@@ -43,6 +46,7 @@ export function HomeFeature() {
       setStatus("idle");
     } catch {
       setStatus("error");
+      router.push("/");
     }
   };
 
