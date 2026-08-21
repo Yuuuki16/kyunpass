@@ -25,11 +25,17 @@ export function Loading() {
 
         <section className="loading-body" aria-label="音声を分析しています">
           <div className="loading-wave loading-wave-top" aria-hidden="true" />
-          <div className="loading-wave loading-wave-bottom" aria-hidden="true" />
+          <div
+            className="loading-wave loading-wave-bottom"
+            aria-hidden="true"
+          />
           <div className="loading-card" role="status" aria-live="polite">
             <div className="loading-spinner" aria-hidden="true">
               {Array.from({ length: 8 }, (_, index) => (
-                <span key={index} style={{ transform: `rotate(${index * 45}deg)` }} />
+                <span
+                  key={index}
+                  style={{ transform: `rotate(${index * 45}deg)` }}
+                />
               ))}
             </div>
             <p>分析中...</p>
