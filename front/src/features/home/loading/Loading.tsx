@@ -1,3 +1,4 @@
+import { Wave } from "@/components/Wave/Wave";
 import Image from "next/image";
 
 export function Loading() {
@@ -27,17 +28,23 @@ export function Loading() {
         </header>
 
         <section
-          className="relative grid min-h-[900px] flex-1 place-items-center overflow-hidden bg-[#FBCFE8] max-[480px]:min-h-0"
+          className="relative grid min-h-[900px] flex-1 place-items-center overflow-hidden bg-[#F5F5F5] max-[480px]:min-h-0"
           aria-label="音声を分析しています"
         >
           <div
-            className="absolute top-[22%] -left-[15%] z-0 h-[48%] w-[130%] -rotate-3 rounded-tl-none rounded-tr-none rounded-br-[52%] rounded-bl-[44%] bg-[#F5F5F5]"
+            className="pointer-events-none absolute -left-[9px] right-0 top-0 z-0 rotate-180 [&>img]:h-auto [&>img]:w-full"
             aria-hidden="true"
-          />
+          >
+            <Wave />
+          </div>
+
           <div
-            className="absolute -left-[15%] bottom-[19%] z-0 h-[48%] w-[130%] -rotate-3 rounded-tl-[48%] rounded-tr-[52%] bg-[#F5F5F5]"
+            className="pointer-events-none absolute -right-[9px] bottom-0 left-0 top-[500px] z-0 flex flex-col [&>img]:h-auto [&>img]:w-full [&>img]:shrink-0"
             aria-hidden="true"
-          />
+          >
+            <Wave />
+            <div className="-mt-px min-h-px flex-1 bg-[#FBCFE8]" />
+          </div>
 
           <div
             className="z-[1] flex h-[260px] w-[258px] flex-col items-center justify-center gap-[30px] rounded-[14px] bg-white text-[#8A8A8A] shadow-[0_1px_2px_rgba(0,0,0,0.02)] max-[480px]:h-[230px] max-[480px]:w-[220px]"
