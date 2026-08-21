@@ -1,6 +1,9 @@
+"use client";
+
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { Zen_Maru_Gothic } from "next/font/google";
+import { useRouter } from "next/navigation";
 
 const zenMaruGothic = Zen_Maru_Gothic({
   weight: ["400", "700"],
@@ -9,6 +12,8 @@ const zenMaruGothic = Zen_Maru_Gothic({
 });
 
 export function Result() {
+  const router = useRouter();
+
   return (
     <div
       className={`${zenMaruGothic.className} relative mx-auto min-h-dvh w-full max-w-[430px] overflow-hidden bg-[#F5F5F5]`}
@@ -55,6 +60,7 @@ export function Result() {
 
         <button
           type="button"
+          onClick={() => router.push("/")}
           className="mt-[83px] h-12 w-[140px] rounded-lg bg-[#FF99B4] text-[20px] leading-none text-white shadow-[0_4px_4px_rgba(0,0,0,0.25)]"
         >
           新しく調査
