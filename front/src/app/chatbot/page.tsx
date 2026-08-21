@@ -1,4 +1,4 @@
-import { Chatbot } from "@/features/chatbot/Chatbot";
+import { Chatbot } from "@/features/home/chatbot/Chatbot";
 
 export default function Page() {
   return <Chatbot />;
