@@ -45,7 +45,7 @@ export function HomeFeature() {
 
       await response.json();
       setStatus("idle");
-      router.push("/result");
+      router.push("/chatbot");
     } catch {
       setStatus("error");
       router.push("/");
