@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Literal, NamedTuple
 
 from dotenv import load_dotenv
@@ -14,6 +13,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.line_parser import parse as parse_talk_history
 from app.line_parser import parse_header, split_into_records, suggest_speaker_names
+from app.rag_chunker import RagChunk, chunk_talk_history
+from app.rag_pattern_search import find_similar_rag_patterns
 
 load_dotenv()
 
@@ -29,6 +30,7 @@ TALK_HISTORY_MAX_LENGTH = 2_000_000
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 DANGER_THRESHOLD = 50
 MAX_EVIDENCE_MESSAGES = 5
+MAX_SIMILAR_PATTERNS = 3
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -95,6 +97,43 @@ class AnalyzeResponse(BaseModel):
     timeline: list[TimelinePoint] = []
     theme_evaluations: dict[str, str] = {}
 
+
+class RagChunkRequest(BaseModel):
+    user_name: str = Field(min_length=1, max_length=100)
+    other_name: str = Field(min_length=1, max_length=100)
+    talk_history: str = Field(min_length=1, max_length=TALK_HISTORY_MAX_LENGTH)
+    max_chunk_chars: int = Field(default=1_200, ge=100, le=12_000)
+    overlap_messages: int = Field(default=2, ge=0, le=20)
+
+    @field_validator("user_name", "other_name")
+    @classmethod
+    def strip_names(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Name must not be blank.")
+        return value
+
+    @model_validator(mode="after")
+    def check_names_distinct(self) -> RagChunkRequest:
+        if self.user_name == self.other_name:
+            raise ValueError("user_name and other_name must be different.")
+        return self
+
+
+class RagChunkItem(BaseModel):
+    index: int = Field(ge=0)
+    text: str = Field(min_length=1)
+    source_message_start: int = Field(ge=0)
+    source_message_end: int = Field(ge=0)
+    message_count: int = Field(ge=1)
+    speakers: list[Literal["USER", "OTHER"]]
+
+
+class RagChunkResponse(BaseModel):
+    chunk_count: int = Field(ge=1)
+    chunks: list[RagChunkItem]
+
+
 def context_entry(group: str, option: str) -> dict[str, float | str]:
     try:
         return CONTEXT_OPTIONS[group][option]
@@ -105,13 +144,17 @@ def separate_speakers(history: str, user_name: str, other_name: str) -> list[Sep
     parsed = parse_talk_history(history, user_name, other_name)
     return [SeparatedMessage(speaker=m.speaker, text=m.text, kind=m.kind, date=m.date) for m in parsed.messages]
 
-def load_patterns() -> list[dict[str, object]]:
-    path = Path(__file__).resolve().parents[2] / "db" / "patterns.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+
+def serialize_rag_chunk(chunk: RagChunk) -> RagChunkItem:
+    return RagChunkItem(
+        index=chunk.index,
+        text=chunk.text,
+        source_message_start=chunk.source_message_start,
+        source_message_end=chunk.source_message_end,
+        message_count=chunk.message_count,
+        speakers=list(chunk.speakers),
+    )
+
 
 def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
     text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
@@ -168,7 +211,7 @@ Relationship context:
 - 現在の関係性: {labels["relationship"]}
 Conversation:
 {transcript}
-Retrieved similar patterns (reference only):
+Retrieved similar labeled examples (reference only, for calibration — each "variables" field uses the same 0-100 scale you must output):
 {json.dumps(patterns, ensure_ascii=False)}"""
 
 class LLMResult(NamedTuple):
@@ -276,6 +319,29 @@ def health() -> dict[str, str]:
 def context_options() -> dict[str, dict[str, dict[str, float | str]]]:
     return CONTEXT_OPTIONS
 
+
+@app.post("/rag/chunks", response_model=RagChunkResponse)
+def create_rag_chunks(request: RagChunkRequest) -> RagChunkResponse:
+    """Convert one LINE history to text chunks suitable for RAG embedding."""
+    chunks = chunk_talk_history(
+        request.talk_history,
+        request.user_name,
+        request.other_name,
+        max_chunk_chars=request.max_chunk_chars,
+        overlap_messages=request.overlap_messages,
+    )
+    if not chunks:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Talk history must contain at least one text message from user_name or other_name."
+            ),
+        )
+    return RagChunkResponse(
+        chunk_count=len(chunks),
+        chunks=[serialize_rag_chunk(chunk) for chunk in chunks],
+    )
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     messages = separate_speakers(request.talk_history, request.user_name, request.other_name)
@@ -293,9 +359,13 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     ):
         raise HTTPException(
             status_code=422,
-            detail="発言者名がトーク履歴内の表記と一致しない行が多数あります。user_name/other_nameを確認してください。",
+            detail=(
+                "発言者を十分に判別できませんでした。LINEアプリの「トーク履歴を送信」で"
+                "出力したtxtファイルを使い、名前選択画面に表示された候補をそのまま選んでください。"
+            ),
         )
-    patterns = load_patterns()
+    other_text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
+    patterns = find_similar_rag_patterns(other_text, top_k=MAX_SIMILAR_PATTERNS)
     period_entry = context_entry("A", request.context.period)
     meeting_entry = context_entry("B", request.context.meeting)
     relationship_entry = context_entry("C", request.context.relationship)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
@@ -14,11 +15,24 @@ DATE_HEADER_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})\([月火水木金土�
 THREE_COL_RE = re.compile(r"^(\d{1,2}:\d{2})\t([^\t]*)\t(.*)$")
 TIME_ONLY_RE = re.compile(r"^(\d{1,2}:\d{2})\t(.*)$")
 TWO_COL_RE = re.compile(r"^([^\t:：\n]{1,50})[:：]\s?(.+)$")
+DATETIME_THREE_COL_RE = re.compile(
+    r"^(\d{4})/(\d{1,2})/(\d{1,2})(?:\([月火水木金土日]\))?\s+"
+    r"(\d{1,2}:\d{2}(?::\d{2})?)\t([^\t]*)\t(.*)$"
+)
+DATETIME_NAMED_RE = re.compile(
+    r"^\[?(\d{4})/(\d{1,2})/(\d{1,2})(?:\([月火水木金土日]\))?\s+"
+    r"(\d{1,2}:\d{2}(?::\d{2})?)\]?(?:,\s*|\s+)"
+    r"([^\t:：\n]{1,50}?)\s*[:：]\s*(.+)$"
+)
+TIMED_NAMED_RE = re.compile(
+    r"^(\d{1,2}:\d{2}(?::\d{2})?)\s+([^\t:：\n]{1,50}?)\s*[:：]\s*(.+)$"
+)
 DELETED_WITH_NAME_RE = re.compile(r"^(.+?)がメッセージの送信を取り消しました$")
 DELETED_NO_NAME_RE = re.compile(r"^メッセージの送信を取り消しました$")
 REACTION_RE = re.compile(r"^\([^)]+\)$")
 MEDIA_TEXTS = {"[写真]", "[動画]", "[ファイル]", "[スタンプ]", "[連絡先]"}
 CALL_PREFIX = "☎"
+ZERO_WIDTH_CHARACTERS_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
 
 
 @dataclass
@@ -79,10 +93,80 @@ def suggest_speaker_names(
     one candidate remains once the other person is known, since otherwise (group
     chats, or no title match) there is no reliable signal for who is the user.
     """
-    suggested_other_name = chat_partner_name if chat_partner_name in candidate_speakers else None
+    suggested_other_name = next(
+        (
+            candidate
+            for candidate in candidate_speakers
+            if chat_partner_name is not None and names_match(candidate, chat_partner_name)
+        ),
+        None,
+    )
     remaining_candidates = [name for name in candidate_speakers if name != suggested_other_name]
     suggested_user_name = remaining_candidates[0] if suggested_other_name and len(remaining_candidates) == 1 else None
     return suggested_other_name, suggested_user_name
+
+
+def normalize_name(name: str) -> str:
+    """Normalize visually identical LINE display names before comparison."""
+    normalized = unicodedata.normalize("NFKC", name)
+    normalized = ZERO_WIDTH_CHARACTERS_RE.sub("", normalized)
+    return " ".join(normalized.split()).casefold()
+
+
+def names_match(left: str, right: str) -> bool:
+    return normalize_name(left) == normalize_name(right)
+
+
+def _matching_candidate(candidates: list[str], requested_name: str | None) -> str | None:
+    if requested_name is None:
+        return None
+    return next((candidate for candidate in candidates if names_match(candidate, requested_name)), None)
+
+
+def resolve_speaker_names(
+    records: list[RawRecord],
+    user_name: str,
+    other_name: str,
+    chat_partner_name: str | None,
+) -> tuple[str | None, str | None]:
+    """Resolve actual sender labels from a LINE export and the selected names.
+
+    A direct normalized match is preferred.  For a one-to-one LINE export, its
+    title identifies the counterpart; once that person is known, the sole
+    remaining sender is safely inferred as the user.  The same inference is
+    used if just one selected name is recognized.  No role is guessed when a
+    group conversation has more than two possible speakers.
+    """
+    candidates = list(dict.fromkeys(record.name for record in records if record.name))
+    resolved_user_name = _matching_candidate(candidates, user_name)
+    resolved_other_name = _matching_candidate(candidates, other_name)
+
+    if resolved_other_name is None:
+        resolved_other_name = _matching_candidate(candidates, chat_partner_name)
+
+    if len(candidates) == 2:
+        if resolved_user_name is None and resolved_other_name is not None:
+            remaining = [
+                candidate
+                for candidate in candidates
+                if not names_match(candidate, resolved_other_name)
+            ]
+            if len(remaining) == 1:
+                resolved_user_name = remaining[0]
+        if resolved_other_name is None and resolved_user_name is not None:
+            remaining = [
+                candidate
+                for candidate in candidates
+                if not names_match(candidate, resolved_user_name)
+            ]
+            if len(remaining) == 1:
+                resolved_other_name = remaining[0]
+
+    return resolved_user_name, resolved_other_name
+
+
+def _format_date(year: str, month: str, day: str) -> str:
+    return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
 
 
 def _finalize_text(text: str) -> str:
@@ -137,24 +221,41 @@ def split_into_records(raw: str) -> list[RawRecord]:
         date_match = DATE_HEADER_RE.match(stripped)
         if date_match:
             year, month, day = date_match.groups()
-            current_date = f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+            current_date = _format_date(year, month, day)
             continue
 
-        match = THREE_COL_RE.match(line)
+        match = DATETIME_THREE_COL_RE.match(line)
         if match:
-            _, name, text = match.groups()
+            year, month, day, _, name, text = match.groups()
+            current_date = _format_date(year, month, day)
             name = name.strip() or None
         else:
-            match = TIME_ONLY_RE.match(line)
+            match = DATETIME_NAMED_RE.match(line)
             if match:
-                name, text = None, match.group(2)
+                year, month, day, _, name, text = match.groups()
+                current_date = _format_date(year, month, day)
+                name = name.strip() or None
             else:
-                match = TWO_COL_RE.match(stripped)
+                match = THREE_COL_RE.match(line)
                 if match:
-                    name, text = match.groups()
+                    _, name, text = match.groups()
                     name = name.strip() or None
                 else:
-                    name, text = None, stripped
+                    match = TIME_ONLY_RE.match(line)
+                    if match:
+                        name, text = None, match.group(2)
+                    else:
+                        match = TIMED_NAMED_RE.match(stripped)
+                        if match:
+                            _, name, text = match.groups()
+                            name = name.strip() or None
+                        else:
+                            match = TWO_COL_RE.match(stripped)
+                            if match:
+                                name, text = match.groups()
+                                name = name.strip() or None
+                            else:
+                                name, text = None, stripped
 
         deleted_with_name = DELETED_WITH_NAME_RE.match(text)
         if deleted_with_name:
@@ -179,19 +280,39 @@ def split_into_records(raw: str) -> list[RawRecord]:
     return records
 
 
-def classify_speaker(name: str | None, user_name: str, other_name: str) -> Speaker:
-    if name == user_name:
+def classify_speaker(name: str | None, user_name: str | None, other_name: str | None) -> Speaker:
+    if name is not None and user_name is not None and names_match(name, user_name):
         return "USER"
-    if name == other_name:
+    if name is not None and other_name is not None and names_match(name, other_name):
         return "OTHER"
     return "UNKNOWN"
 
 
-def parse(raw: str, user_name: str, other_name: str) -> ParsedHistory:
-    body, _ = parse_header(raw)
+def parse(
+    raw: str,
+    user_name: str,
+    other_name: str,
+    *,
+    infer_speakers: bool = True,
+) -> ParsedHistory:
+    body, chat_partner_name = parse_header(raw)
     records = split_into_records(body)
+    if infer_speakers:
+        resolved_user_name, resolved_other_name = resolve_speaker_names(
+            records,
+            user_name,
+            other_name,
+            chat_partner_name,
+        )
+    else:
+        resolved_user_name, resolved_other_name = user_name, other_name
     messages = [
-        ParsedMessage(speaker=classify_speaker(record.name, user_name, other_name), text=record.text, kind=record.kind, date=record.date)
+        ParsedMessage(
+            speaker=classify_speaker(record.name, resolved_user_name, resolved_other_name),
+            text=record.text,
+            kind=record.kind,
+            date=record.date,
+        )
         for record in records
     ]
     return ParsedHistory(messages=messages)
