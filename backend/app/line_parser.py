@@ -9,6 +9,7 @@ Kind = Literal["text", "media", "call", "reaction", "system", "unparsed"]
 Speaker = Literal["USER", "OTHER", "UNKNOWN"]
 
 HEADER_LINE_RE = re.compile(r"^(\[LINE\]\s.*|保存日時：.*)$")
+CHAT_TITLE_RE = re.compile(r"^\[LINE\]\s(.+?)とのトーク履歴$")
 DATE_HEADER_RE = re.compile(r"^\d{4}/\d{1,2}/\d{1,2}\([月火水木金土日]\)$")
 THREE_COL_RE = re.compile(r"^(\d{1,2}:\d{2})\t([^\t]*)\t(.*)$")
 TIME_ONLY_RE = re.compile(r"^(\d{1,2}:\d{2})\t(.*)$")
@@ -46,6 +47,19 @@ def strip_export_header(raw: str) -> str:
     while index < len(lines) and (lines[index].strip() == "" or HEADER_LINE_RE.match(lines[index].strip())):
         index += 1
     return "\n".join(lines[index:])
+
+
+def extract_chat_partner_name(raw: str) -> str | None:
+    """Read the counterpart's name out of LINE's `[LINE] {name}とのトーク履歴` title line.
+
+    LINE's export title always names the *other* participant (it is always "my
+    chat with X"), so this is a reliable signal for who to suggest as other_name.
+    """
+    for line in raw.splitlines():
+        match = CHAT_TITLE_RE.match(line.strip())
+        if match:
+            return match.group(1).strip()
+    return None
 
 
 def _finalize_text(text: str) -> str:
