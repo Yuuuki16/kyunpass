@@ -130,6 +130,14 @@ export function Chatbot() {
       const userName = sessionStorage.getItem("kyunpass:userName") ?? "";
       const otherName = sessionStorage.getItem("kyunpass:otherName") ?? "";
 
+      const context = Object.fromEntries(
+        questions.map((question) => [
+          question.field,
+          answers.find((answer) => answer.questionId === question.id)?.code ??
+            "",
+        ]),
+      ) as { period: string; meeting: string; relationship: string };
+
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/analyze`,
         {
@@ -138,11 +146,7 @@ export function Chatbot() {
           body: JSON.stringify({
             user_name: userName,
             other_name: otherName,
-            context: {
-              period: answers[0].code,
-              meeting: answers[1].code,
-              relationship: answers[2].code,
-            },
+            context,
             talk_history: talkHistory,
           }),
         },
