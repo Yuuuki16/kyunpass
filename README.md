@@ -226,6 +226,20 @@ import { supabase } from "@db/supabase/client";
 
    [http://localhost:8000/health](http://localhost:8000/health) にアクセスして `{"status":"ok"}` が返ればOKです。
 
+### バックエンドをRenderにデプロイする
+
+リポジトリ直下の `render.yaml` にRender用の設定(Blueprint)を用意しています。
+
+1. [Render](https://render.com/) でGitHubアカウントを連携し、このリポジトリを選択して「New Blueprint」を実行します。`render.yaml` が自動で読み込まれ、`docker/backend.Dockerfile` を使ったWebサービスが作成されます。
+2. Renderのダッシュボードで以下の環境変数を設定します。
+   - `OPENAI_API_KEY`: OpenAIのAPIキー
+   - `ALLOWED_ORIGINS`: フロントエンド(Vercel)のURL。例: `https://kyunpass.vercel.app`(複数ある場合はカンマ区切り)
+3. デプロイ完了後に払い出されるURL(例: `https://kyunpass-backend.onrender.com`)を、フロントエンド側の環境変数 `NEXT_PUBLIC_API_URL` に設定してください。
+
+Renderは `PORT` 環境変数をコンテナに自動で渡すため、`docker/backend.Dockerfile` はその値でuvicornを起動するようになっています(ローカルの `docker run` では未設定時に8000番を使います)。
+
+無料プランは一定時間アクセスがないとスリープし、次回アクセス時に起動まで数十秒かかる点に注意してください。
+
 ### 主要コマンド一覧
 
 すべてリポジトリのルートディレクトリで実行してください。

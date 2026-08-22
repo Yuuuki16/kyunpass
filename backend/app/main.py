@@ -20,7 +20,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="kyunpass API", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
@@ -129,6 +130,10 @@ def fallback_evidence(messages: list[SeparatedMessage]) -> tuple[list[str], list
 
     return matching_texts(POSITIVE_VARIABLE_KEYS), matching_texts(DANGER_VARIABLE_KEYS)
 
+def verify_other_quotes(messages: list[SeparatedMessage], quotes: list[str]) -> list[str]:
+    other_texts = [m.text for m in messages if m.speaker == "OTHER" and m.kind == "text"]
+    return [quote for quote in quotes if any(quote in text for text in other_texts)]
+
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -151,10 +156,10 @@ def build_llm_prompt(
     transcript = "\n".join(f"[{other_name if m.speaker == 'OTHER' else user_name if m.speaker == 'USER' else m.speaker}] {m.text}" for m in messages)
     return f"""You are the analysis engine behind kyunpass. Its mission is to help {user_name} find out whether {other_name}'s feelings are pure (純粋) rather than calculated (打算的), so {user_name} can resolve romantic anxiety early and avoid trouble before it happens. Do not make {user_name} suspicious of or aggressive toward {other_name} for its own sake — the goal is protecting {user_name}, not "winning" the relationship or scoring technique.
 
-Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Return JSON only:
+Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Base the six scores strictly on the content of {other_name}'s own messages — {user_name}'s messages are provided only as context for what {other_name} was responding to, and must never themselves be scored or quoted. Every score and every quote must be traceable to a specific message actually sent by {other_name}. Return JSON only:
 - integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity
-- kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes of {other_name}'s own messages that are the clearest evidence of respect/interest/relationship_building (empty array if none)
-- caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes of {other_name}'s own messages that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
+- kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of respect/interest/relationship_building (empty array if none)
+- caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
 - evaluation: a short Japanese evaluation. If casual_sex_seeking, self_priority, or relationship_ambiguity is {DANGER_THRESHOLD} or higher, evaluation MUST clearly and gently warn {user_name} and encourage them to pause and be cautious (引き止める) instead of describing the situation neutrally — protect {user_name}, do not attack {other_name}. Otherwise, describe the positive signs found.
 Never use vulgar, graphic, or directly sexual wording anywhere in your response (evaluation text or quoted messages), even when quoting the conversation or describing casual_sex_seeking. Paraphrase or soften such wording instead, e.g. describe it as "身体的な関係を急いでいる" rather than using explicit terms.
 Relationship context:
@@ -302,6 +307,8 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     llm_result = infer_with_llm(messages, patterns, labels, request.user_name, request.other_name)
     if llm_result:
         values, llm_evaluation, kyun_messages, caution_messages = llm_result
+        kyun_messages = verify_other_quotes(messages, kyun_messages)
+        caution_messages = verify_other_quotes(messages, caution_messages)
     else:
         values, llm_evaluation = fallback_variables(messages), ""
         kyun_messages, caution_messages = fallback_evidence(messages)

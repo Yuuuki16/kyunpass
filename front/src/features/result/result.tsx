@@ -436,44 +436,50 @@ export function Result() {
           </section>
         )}
 
-        {(kyunMessages.length > 0 || cautionMessages.length > 0) && (
-          <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col gap-4 rounded-lg bg-white p-4">
-            {kyunMessages.length > 0 && (
-              <div>
-                <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
-                  きゅんした発言
-                </h2>
-                <ul className="mt-2 flex flex-col gap-1">
-                  {kyunMessages.map((message) => (
-                    <li
-                      key={message}
-                      className="rounded-[12px] bg-[#FFF5F8] px-3 py-2 text-[12px] leading-[17px] text-[#D4537E]"
-                    >
-                      「{message}」
-                    </li>
-                  ))}
-                </ul>
-              </div>
+        <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col gap-4 rounded-lg bg-white p-4">
+          <div>
+            <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+              きゅんした発言
+            </h2>
+            {kyunMessages.length > 0 ? (
+              <ul className="mt-2 flex flex-col gap-1">
+                {kyunMessages.map((message) => (
+                  <li
+                    key={message}
+                    className="rounded-[12px] bg-[#FFF5F8] px-3 py-2 text-[12px] leading-[17px] text-[#D4537E]"
+                  >
+                    「{message}」
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-[12px] leading-[17px] text-[#B8B8B8]">
+                特にありません
+              </p>
             )}
-            {cautionMessages.length > 0 && (
-              <div>
-                <h2 className="text-[16px] leading-[23px] font-bold text-[#E08A3C]">
-                  気になる発言
-                </h2>
-                <ul className="mt-2 flex flex-col gap-1">
-                  {cautionMessages.map((message) => (
-                    <li
-                      key={message}
-                      className="rounded-[12px] bg-[#FFF3E6] px-3 py-2 text-[12px] leading-[17px] text-[#B5651D]"
-                    >
-                      「{message}」
-                    </li>
-                  ))}
-                </ul>
-              </div>
+          </div>
+          <div>
+            <h2 className="text-[16px] leading-[23px] font-bold text-[#E08A3C]">
+              気になる発言
+            </h2>
+            {cautionMessages.length > 0 ? (
+              <ul className="mt-2 flex flex-col gap-1">
+                {cautionMessages.map((message) => (
+                  <li
+                    key={message}
+                    className="rounded-[12px] bg-[#FFF3E6] px-3 py-2 text-[12px] leading-[17px] text-[#B5651D]"
+                  >
+                    「{message}」
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-[12px] leading-[17px] text-[#B8B8B8]">
+                特にありません
+              </p>
             )}
-          </section>
-        )}
+          </div>
+        </section>
 
         <button
           type="button"
