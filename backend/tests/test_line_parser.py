@@ -65,3 +65,33 @@ def test_simple_two_column_format_still_parses() -> None:
 
     assert [m.speaker for m in result.messages] == ["USER", "OTHER"]
     assert [m.text for m in result.messages] == ["今度会える？", "ありがとう！また会おう"]
+
+
+def test_messages_are_tagged_with_the_preceding_date_header() -> None:
+    result = parse(REAL_EXPORT_SAMPLE, user_name="太郎", other_name="花子")
+
+    assert all(m.date == "2025-04-18" for m in result.messages)
+
+
+def test_messages_before_any_date_header_have_no_date() -> None:
+    raw = "自分: 今度会える？\n相手: ありがとう！また会おう"
+
+    result = parse(raw, user_name="自分", other_name="相手")
+
+    assert all(m.date is None for m in result.messages)
+
+
+def test_multiline_quoted_message_keeps_the_date_it_started_on() -> None:
+    raw = (
+        "2025/04/18(金)\n"
+        '12:08\t花子\t"お疲れ様です！\n'
+        'よろしくお願いします！"\n'
+        "2025/04/19(土)\n"
+        "09:00\t太郎\tおはよう\n"
+    )
+
+    result = parse(raw, user_name="太郎", other_name="花子")
+    dates = {m.text: m.date for m in result.messages}
+
+    assert dates["お疲れ様です！\nよろしくお願いします！"] == "2025-04-18"
+    assert dates["おはよう"] == "2025-04-19"
