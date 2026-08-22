@@ -40,7 +40,11 @@ type AnalyzeResult = {
   timeline: TimelinePoint[];
 };
 
-const SERVER_SNAPSHOT: AnalyzeResult = { kyunScore: null, evaluation: "", timeline: [] };
+const SERVER_SNAPSHOT: AnalyzeResult = {
+  kyunScore: null,
+  evaluation: "",
+  timeline: [],
+};
 
 let cachedRaw: string | null = null;
 let cachedResult: AnalyzeResult = SERVER_SNAPSHOT;
@@ -82,7 +86,9 @@ function formatShortDate(date: string): string {
 
 function smoothPath(coords: { x: number; y: number }[]): string {
   if (coords.length < 3) {
-    return coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x} ${c.y}`).join(" ");
+    return coords
+      .map((c, i) => `${i === 0 ? "M" : "L"} ${c.x} ${c.y}`)
+      .join(" ");
   }
   let path = `M ${coords[0].x} ${coords[0].y}`;
   for (let i = 0; i < coords.length - 1; i++) {
@@ -99,7 +105,11 @@ function smoothPath(coords: { x: number; y: number }[]): string {
   return path;
 }
 
-function describeTrend(points: TimelinePoint[]): { arrow: string; label: string; className: string } {
+function describeTrend(points: TimelinePoint[]): {
+  arrow: string;
+  label: string;
+  className: string;
+} {
   const delta = points[points.length - 1].kyun_score - points[0].kyun_score;
   if (delta > 0) {
     return { arrow: "↑", label: `+${delta}pt`, className: "text-[#D4537E]" };
@@ -119,8 +129,12 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
   const marginTop = 16;
   const marginBottom = showAllLabels ? 14 : 4;
   const plotHeight = height - marginTop - marginBottom;
-  const xStep = points.length > 1 ? (width - marginLeft - marginRight) / (points.length - 1) : 0;
-  const toY = (score: number) => marginTop + plotHeight - (score / 100) * plotHeight;
+  const xStep =
+    points.length > 1
+      ? (width - marginLeft - marginRight) / (points.length - 1)
+      : 0;
+  const toY = (score: number) =>
+    marginTop + plotHeight - (score / 100) * plotHeight;
 
   const coords = points.map((point, index) => ({
     x: marginLeft + index * xStep,
@@ -188,7 +202,9 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
                 y={height - 1}
                 fontSize={8}
                 fill="#B8B8B8"
-                textAnchor={index === 0 ? "start" : index === lastIndex ? "end" : "middle"}
+                textAnchor={
+                  index === 0 ? "start" : index === lastIndex ? "end" : "middle"
+                }
               >
                 {formatShortDate(points[index].date)}
               </text>
@@ -285,7 +301,9 @@ export function Result() {
             {timeline.length > 6 && (
               <div className="mt-1 flex w-[220px] max-w-full justify-between text-[10px] text-[#B8B8B8]">
                 <span>{formatShortDate(timeline[0].date)}</span>
-                <span>{formatShortDate(timeline[timeline.length - 1].date)}</span>
+                <span>
+                  {formatShortDate(timeline[timeline.length - 1].date)}
+                </span>
               </div>
             )}
           </section>
