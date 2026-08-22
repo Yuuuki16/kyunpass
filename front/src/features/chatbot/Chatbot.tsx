@@ -219,6 +219,18 @@ export function Chatbot() {
           ? JSON.stringify(data.caution_messages)
           : "[]",
       );
+      sessionStorage.setItem(
+        "kyunpass:variables",
+        data.variables && typeof data.variables === "object"
+          ? JSON.stringify(data.variables)
+          : "{}",
+      );
+      sessionStorage.setItem(
+        "kyunpass:themeEvaluations",
+        data.theme_evaluations && typeof data.theme_evaluations === "object"
+          ? JSON.stringify(data.theme_evaluations)
+          : "{}",
+      );
 
       router.replace("/loading?complete=1");
     } catch (error) {

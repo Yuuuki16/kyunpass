@@ -10,6 +10,7 @@ from app.main import (
     fallback_evaluation,
     fallback_evidence,
     mask_vulgar_words,
+    theme_evaluations,
     verify_other_quotes,
 )
 
@@ -306,6 +307,27 @@ def test_fallback_evaluation_warns_when_danger_signal_is_high() -> None:
     evaluation = fallback_evaluation(30, values)
 
     assert "立ち止まって" in evaluation
+
+
+def test_theme_evaluations_returns_three_softened_impressions() -> None:
+    values = {
+        "respect": 20,
+        "interest": 20,
+        "relationship_building": 20,
+        "casual_sex_seeking": 80,
+        "self_priority": 10,
+        "relationship_ambiguity": 10,
+    }
+
+    evaluations = theme_evaluations(values)
+
+    assert set(evaluations) == {
+        "casual_sex_seeking",
+        "self_priority",
+        "relationship_ambiguity",
+    }
+    assert "立ち止まって" in evaluations["casual_sex_seeking"]
+    assert "サインは強くありません" in evaluations["self_priority"]
 
 
 class _FakeResponse:

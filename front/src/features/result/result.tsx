@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { Zen_Maru_Gothic } from "next/font/google";
@@ -40,6 +40,8 @@ type AnalyzeResult = {
   timeline: TimelinePoint[];
   kyunMessages: string[];
   cautionMessages: string[];
+  variables: Record<string, number>;
+  themeEvaluations: Record<string, string>;
 };
 
 const SERVER_SNAPSHOT: AnalyzeResult = {
@@ -48,6 +50,8 @@ const SERVER_SNAPSHOT: AnalyzeResult = {
   timeline: [],
   kyunMessages: [],
   cautionMessages: [],
+  variables: {},
+  themeEvaluations: {},
 };
 
 function parseMessages(raw: string | null): string[] {
@@ -62,6 +66,36 @@ function parseMessages(raw: string | null): string[] {
   }
 }
 
+function parseVariables(raw: string | null): Record<string, number> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([, value]) => typeof value === "number" && Number.isFinite(value),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function parseEvaluations(raw: string | null): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => typeof value === "string"),
+    );
+  } catch {
+    return {};
+  }
+}
+
 let cachedRaw: string | null = null;
 let cachedResult: AnalyzeResult = SERVER_SNAPSHOT;
 
@@ -72,6 +106,8 @@ function getSnapshot(): AnalyzeResult {
     sessionStorage.getItem("kyunpass:timeline"),
     sessionStorage.getItem("kyunpass:kyunMessages"),
     sessionStorage.getItem("kyunpass:cautionMessages"),
+    sessionStorage.getItem("kyunpass:variables"),
+    sessionStorage.getItem("kyunpass:themeEvaluations"),
   ].join(" ");
 
   if (raw !== cachedRaw) {
@@ -87,6 +123,10 @@ function getSnapshot(): AnalyzeResult {
       ),
       cautionMessages: parseMessages(
         sessionStorage.getItem("kyunpass:cautionMessages"),
+      ),
+      variables: parseVariables(sessionStorage.getItem("kyunpass:variables")),
+      themeEvaluations: parseEvaluations(
+        sessionStorage.getItem("kyunpass:themeEvaluations"),
       ),
     };
   }
@@ -240,10 +280,77 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
   );
 }
 
+const THEMES = [
+  { key: "casual_sex_seeking", label: "身体的な関係" },
+  { key: "self_priority", label: "自分優先" },
+  { key: "relationship_ambiguity", label: "関係の曖昧さ" },
+] as const;
+
+function ThemeEvaluation({
+  variables,
+  evaluations,
+}: {
+  variables: Record<string, number>;
+  evaluations: Record<string, string>;
+}) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const theme = THEMES[selectedIndex];
+  const dangerScore = Math.max(0, Math.min(100, variables[theme.key] ?? 0));
+
+  return (
+    <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col rounded-lg bg-white p-4">
+      <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+        テーマ別評価
+      </h2>
+      <div
+        className="mt-3 grid grid-cols-3 gap-1"
+        role="tablist"
+        aria-label="テーマ別評価"
+      >
+        {THEMES.map((item, index) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={selectedIndex === index}
+            onClick={() => setSelectedIndex(index)}
+            className={`min-h-10 rounded-md px-1 text-[11px] leading-[15px] font-bold ${selectedIndex === index ? "bg-[#D4537E] text-white" : "bg-[#FFF5F8] text-[#D4537E]"}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-4" role="tabpanel" aria-label={`${theme.label}の評価`}>
+        <div className="flex items-center justify-between text-[12px] font-bold text-[#D4537E]">
+          <span>危険度</span>
+          <span>{dangerScore}%</span>
+        </div>
+        <div className="mt-2 h-4 overflow-hidden rounded-full bg-[#FDE8EF]">
+          <div
+            className="h-full rounded-full bg-[#D4537E] transition-[width] duration-300"
+            style={{ width: `${dangerScore}%` }}
+          />
+        </div>
+        <p className="mt-3 rounded-lg bg-[#FFF5F8] px-3 py-2 text-[12px] leading-[18px] text-[#6B4B57]">
+          {evaluations[theme.key] ??
+            "このテーマの所感はありません。会話の流れを見ながら確認しましょう。"}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export function Result() {
   const router = useRouter();
-  const { kyunScore, evaluation, timeline, kyunMessages, cautionMessages } =
-    useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const {
+    kyunScore,
+    evaluation,
+    timeline,
+    kyunMessages,
+    cautionMessages,
+    variables,
+    themeEvaluations,
+  } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     // Re-read the store directly rather than trusting the `kyunScore` render
@@ -305,6 +412,8 @@ export function Result() {
             共有
           </button>
         </section>
+
+        <ThemeEvaluation variables={variables} evaluations={themeEvaluations} />
 
         {timeline.length >= 2 && trend && (
           <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white p-4">
