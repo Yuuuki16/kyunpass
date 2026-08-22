@@ -61,9 +61,21 @@ export function HomeFeature() {
           JSON.stringify(data.candidate_speakers),
         );
       }
+      sessionStorage.setItem(
+        "kyunpass:suggestedUserName",
+        typeof data.suggested_user_name === "string"
+          ? data.suggested_user_name
+          : "",
+      );
+      sessionStorage.setItem(
+        "kyunpass:suggestedOtherName",
+        typeof data.suggested_other_name === "string"
+          ? data.suggested_other_name
+          : "",
+      );
 
       setStatus("idle");
-      router.push("/chatbot");
+      router.push("/select-names");
     } catch (error) {
       setErrorMessage(
         error instanceof Error
