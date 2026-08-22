@@ -92,6 +92,7 @@ class AnalyzeResponse(BaseModel):
     kyun_messages: list[str] = []
     caution_messages: list[str] = []
     timeline: list[TimelinePoint] = []
+    theme_evaluations: dict[str, str] = {}
 
 def context_entry(group: str, option: str) -> dict[str, float | str]:
     try:
@@ -238,6 +239,30 @@ def fallback_evaluation(score: float, values: dict[str, int]) -> str:
     positive = max(POSITIVE_VARIABLE_KEYS, key=values.get)
     return f"キュン度は{'高め' if score >= 70 else 'これから伸びる' if score >= 45 else '慎重に見極める'}段階です。特に『{VARIABLE_LABELS[positive]}』傾向が見られます。"
 
+
+def theme_evaluations(values: dict[str, int]) -> dict[str, str]:
+    messages = {
+        "casual_sex_seeking": (
+            "身体的な関係を急ぐサインは強くありません。相手のペースを見ながら、安心できる進め方を選べそうです。",
+            "身体的な関係を急ぐサインが少し見られます。無理に合わせず、自分のペースを大切にしましょう。",
+            "身体的な関係を急ぐサインが強く見られます。関係を急がず、違和感があれば立ち止まって確認しましょう。",
+        ),
+        "self_priority": (
+            "相手が自分の都合だけを優先するサインは強くありません。お互いの予定や気持ちを尊重できそうです。",
+            "相手の都合を優先するサインが少し見られます。あなたの予定や気持ちも同じように大切にしましょう。",
+            "相手の都合を優先するサインが強く見られます。無理に合わせず、対等に話し合えるかを見極めましょう。",
+        ),
+        "relationship_ambiguity": (
+            "関係を曖昧にするサインは強くありません。相手の気持ちは比較的わかりやすく表れていそうです。",
+            "関係を曖昧にするサインが少し見られます。急いで答えを出さず、言葉と行動を見ていきましょう。",
+            "関係を曖昧にするサインが強く見られます。期待だけで進めず、あなたが望む関係を確認しましょう。",
+        ),
+    }
+    return {
+        key: messages[key][0 if values[key] < 30 else 1 if values[key] < DANGER_THRESHOLD else 2]
+        for key in DANGER_VARIABLE_KEYS
+    }
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -288,7 +313,7 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     timeline = build_timeline(messages, g)
     evaluation = mask_vulgar_words(llm_evaluation or fallback_evaluation(k, values))
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
-  similar_patterns=patterns, evaluation=evaluation, kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline)
+    similar_patterns=patterns, evaluation=evaluation, kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline, theme_evaluations=theme_evaluations(values))
 
 @app.post("/investigate")
 async def investigate(file: UploadFile) -> dict[str, object]:
