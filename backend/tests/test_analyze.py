@@ -508,3 +508,49 @@ def test_analyze_falls_back_when_llm_evaluation_is_empty(monkeypatch) -> None:
     # LLMの評価文が空なら、スコアと評価文の食い違いを避けるため両方ともフォールバック値になる。
     assert data["variables"]["respect"] != 90
     assert data["evaluation"] != "   "
+
+
+def test_analyze_includes_retrieved_similar_patterns(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    llm_output = json.dumps(
+        {
+            "respect": 90,
+            "interest": 80,
+            "relationship_building": 70,
+            "casual_sex_seeking": 0,
+            "self_priority": 0,
+            "relationship_ambiguity": 0,
+            "kyun_messages": ["ありがとう！また会おう"],
+            "caution_messages": [],
+            "evaluation": "LLMによる評価テキスト",
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+    retrieved_patterns = [
+        {
+            "id": "7d99f633-93ad-4c5c-aae3-0e73afa177b5",
+            "pattern_name": "相手の感情を気にかけている",
+            "conversation_example": "[OTHER]大丈夫？しんどくない？",
+            "description": "相手の感情について言及している",
+            "variables": {"respect": 100, "interest": 100},
+        }
+    ]
+    monkeypatch.setattr(
+        "app.main.find_similar_rag_patterns", lambda query_text, **kwargs: retrieved_patterns
+    )
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "花子",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n花子: ありがとう！また会おう",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["similar_patterns"] == retrieved_patterns
+    assert "相手の感情を気にかけている" in captured["input"]

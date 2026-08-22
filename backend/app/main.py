@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Literal, NamedTuple
 
 from dotenv import load_dotenv
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.line_parser import parse as parse_talk_history
 from app.line_parser import parse_header, split_into_records, suggest_speaker_names
 from app.rag_chunker import RagChunk, chunk_talk_history
+from app.rag_pattern_search import find_similar_rag_patterns
 
 load_dotenv()
 
@@ -30,6 +30,7 @@ TALK_HISTORY_MAX_LENGTH = 2_000_000
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 DANGER_THRESHOLD = 50
 MAX_EVIDENCE_MESSAGES = 5
+MAX_SIMILAR_PATTERNS = 3
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -154,14 +155,6 @@ def serialize_rag_chunk(chunk: RagChunk) -> RagChunkItem:
     )
 
 
-def load_patterns() -> list[dict[str, object]]:
-    path = Path(__file__).resolve().parents[2] / "db" / "patterns.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
 def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
     text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
     return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
@@ -217,7 +210,7 @@ Relationship context:
 - 現在の関係性: {labels["relationship"]}
 Conversation:
 {transcript}
-Retrieved similar patterns (reference only):
+Retrieved similar labeled examples (reference only, for calibration — each "variables" field uses the same 0-100 scale you must output):
 {json.dumps(patterns, ensure_ascii=False)}"""
 
 class LLMResult(NamedTuple):
@@ -346,7 +339,8 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 "出力したtxtファイルを使い、名前選択画面に表示された候補をそのまま選んでください。"
             ),
         )
-    patterns = load_patterns()
+    other_text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
+    patterns = find_similar_rag_patterns(other_text, top_k=MAX_SIMILAR_PATTERNS)
     period_entry = context_entry("A", request.context.period)
     meeting_entry = context_entry("B", request.context.meeting)
     relationship_entry = context_entry("C", request.context.relationship)
