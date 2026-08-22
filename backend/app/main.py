@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.line_parser import parse as parse_talk_history
 from app.line_parser import parse_header, split_into_records, suggest_speaker_names
+from app.rag_chunker import RagChunk, chunk_talk_history
 
 load_dotenv()
 
@@ -94,6 +95,43 @@ class AnalyzeResponse(BaseModel):
     caution_messages: list[str] = []
     timeline: list[TimelinePoint] = []
 
+
+class RagChunkRequest(BaseModel):
+    user_name: str = Field(min_length=1, max_length=100)
+    other_name: str = Field(min_length=1, max_length=100)
+    talk_history: str = Field(min_length=1, max_length=TALK_HISTORY_MAX_LENGTH)
+    max_chunk_chars: int = Field(default=1_200, ge=100, le=12_000)
+    overlap_messages: int = Field(default=2, ge=0, le=20)
+
+    @field_validator("user_name", "other_name")
+    @classmethod
+    def strip_names(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Name must not be blank.")
+        return value
+
+    @model_validator(mode="after")
+    def check_names_distinct(self) -> RagChunkRequest:
+        if self.user_name == self.other_name:
+            raise ValueError("user_name and other_name must be different.")
+        return self
+
+
+class RagChunkItem(BaseModel):
+    index: int = Field(ge=0)
+    text: str = Field(min_length=1)
+    source_message_start: int = Field(ge=0)
+    source_message_end: int = Field(ge=0)
+    message_count: int = Field(ge=1)
+    speakers: list[Literal["USER", "OTHER"]]
+
+
+class RagChunkResponse(BaseModel):
+    chunk_count: int = Field(ge=1)
+    chunks: list[RagChunkItem]
+
+
 def context_entry(group: str, option: str) -> dict[str, float | str]:
     try:
         return CONTEXT_OPTIONS[group][option]
@@ -103,6 +141,18 @@ def context_entry(group: str, option: str) -> dict[str, float | str]:
 def separate_speakers(history: str, user_name: str, other_name: str) -> list[SeparatedMessage]:
     parsed = parse_talk_history(history, user_name, other_name)
     return [SeparatedMessage(speaker=m.speaker, text=m.text, kind=m.kind, date=m.date) for m in parsed.messages]
+
+
+def serialize_rag_chunk(chunk: RagChunk) -> RagChunkItem:
+    return RagChunkItem(
+        index=chunk.index,
+        text=chunk.text,
+        source_message_start=chunk.source_message_start,
+        source_message_end=chunk.source_message_end,
+        message_count=chunk.message_count,
+        speakers=list(chunk.speakers),
+    )
+
 
 def load_patterns() -> list[dict[str, object]]:
     path = Path(__file__).resolve().parents[2] / "db" / "patterns.json"
@@ -250,6 +300,29 @@ def health() -> dict[str, str]:
 @app.get("/context-options")
 def context_options() -> dict[str, dict[str, dict[str, float | str]]]:
     return CONTEXT_OPTIONS
+
+
+@app.post("/rag/chunks", response_model=RagChunkResponse)
+def create_rag_chunks(request: RagChunkRequest) -> RagChunkResponse:
+    """Convert one LINE history to text chunks suitable for RAG embedding."""
+    chunks = chunk_talk_history(
+        request.talk_history,
+        request.user_name,
+        request.other_name,
+        max_chunk_chars=request.max_chunk_chars,
+        overlap_messages=request.overlap_messages,
+    )
+    if not chunks:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Talk history must contain at least one text message from user_name or other_name."
+            ),
+        )
+    return RagChunkResponse(
+        chunk_count=len(chunks),
+        chunks=[serialize_rag_chunk(chunk) for chunk in chunks],
+    )
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
