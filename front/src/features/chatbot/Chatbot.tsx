@@ -204,7 +204,7 @@ export function Chatbot() {
         typeof data.evaluation === "string" ? data.evaluation : "",
       );
 
-      router.replace("/result");
+      router.replace("/loading?complete=1");
     } catch (error) {
       sessionStorage.setItem(
         "kyunpass:errorMessage",
