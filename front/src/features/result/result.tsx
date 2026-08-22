@@ -159,21 +159,6 @@ function smoothPath(coords: { x: number; y: number }[]): string {
   return path;
 }
 
-function describeTrend(points: TimelinePoint[]): {
-  arrow: string;
-  label: string;
-  className: string;
-} {
-  const delta = points[points.length - 1].kyun_score - points[0].kyun_score;
-  if (delta > 0) {
-    return { arrow: "↑", label: `+${delta}pt`, className: "text-[#D4537E]" };
-  }
-  if (delta < 0) {
-    return { arrow: "↓", label: `${delta}pt`, className: "text-[#9CA3AF]" };
-  }
-  return { arrow: "→", label: "横ばい", className: "text-[#B8B8B8]" };
-}
-
 function TimelineChart({ points }: { points: TimelinePoint[] }) {
   const width = 220;
   const height = 110;
@@ -434,8 +419,6 @@ export function Result({ initialResult }: ResultProps) {
     error: "再試行",
   }[shareStatus];
 
-  const trend = timeline.length >= 2 ? describeTrend(timeline) : null;
-
   return (
     <div
       className={`${zenMaruGothic.className} relative mx-auto min-h-dvh w-full max-w-[430px] overflow-hidden bg-[#F5F5F5]`}
@@ -502,16 +485,11 @@ export function Result({ initialResult }: ResultProps) {
 
         <ThemeEvaluation variables={variables} evaluations={themeEvaluations} />
 
-        {timeline.length >= 2 && trend && (
+        {timeline.length >= 2 && (
           <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white p-4">
-            <div className="flex w-[220px] max-w-full items-baseline justify-between">
-              <h2 className="text-[16px] leading-[23px] font-bold text-[#D4537E]">
-                きゅん度の推移
-              </h2>
-              <span className={`text-[13px] font-bold ${trend.className}`}>
-                {trend.arrow} {trend.label}
-              </span>
-            </div>
+            <h2 className="w-[220px] max-w-full text-[16px] leading-[23px] font-bold text-[#D4537E]">
+              きゅん度の推移
+            </h2>
             <div className="mt-2 h-[110px] w-[220px] max-w-full">
               <TimelineChart points={timeline} />
             </div>
