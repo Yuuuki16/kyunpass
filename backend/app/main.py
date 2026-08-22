@@ -12,9 +12,9 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.line_parser import parse as parse_talk_history
+from app.line_parser import ParsedMessage, parse as parse_talk_history
 from app.line_parser import parse_header, split_into_records, suggest_speaker_names
-from app.rag_chunker import RagChunk, chunk_talk_history
+from app.rag_chunker import RagChunk, chunk_messages, chunk_talk_history
 
 load_dotenv()
 
@@ -28,8 +28,12 @@ UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
 TALK_HISTORY_MAX_LENGTH = 2_000_000
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
-DANGER_THRESHOLD = 50
+DANGER_THRESHOLD = 3
+MAX_VARIABLE_SCORE = 5
+LEGACY_VARIABLE_SCALE = 20
 MAX_EVIDENCE_MESSAGES = 5
+RAG_MATCH_COUNT = 5
+EMBEDDING_MODEL = "text-embedding-3-small"
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -39,6 +43,10 @@ CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
 VARIABLE_LABELS = {"respect": "相手を尊重している", "interest": "相手に関心を持っている", "relationship_building": "継続的な関係性を築こうとしている", "casual_sex_seeking": "身体的な関係を急いでいる", "self_priority": "自分を優先している", "relationship_ambiguity": "恋愛関係を曖昧にしている"}
 WORDS = {"respect": ("ありがとう", "ごめん", "無理しないで", "大丈夫"), "interest": ("好き", "趣味", "仕事", "体調", "元気"), "relationship_building": ("また", "今度", "会おう", "一緒に", "予定"), "casual_sex_seeking": ("ホテル", "泊ま", "セフレ", "エッチ", "体の関係"), "self_priority": ("俺の都合", "私の都合", "今すぐ", "してよ"), "relationship_ambiguity": ("友達のまま", "曖昧", "付き合えない", "まだ決められない")}
 VULGAR_WORDS = ("セフレ", "エッチ", "ヤリモク", "ヤリ捨て", "SEX", "sex")
+
+LLM_VARIABLE_KEYS = ("a", "b", "c", "d", "e", "f")
+VARIABLE_TO_LLM_KEY = dict(zip(VARIABLE_LABELS, LLM_VARIABLE_KEYS, strict=True))
+
 
 def mask_vulgar_words(text: str) -> str:
     for word in VULGAR_WORDS:
@@ -162,9 +170,117 @@ def load_patterns() -> list[dict[str, object]]:
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
+def retrieve_patterns_for_chunks(chunks: list[RagChunk]) -> list[list[dict[str, object]]]:
+    """Retrieve the five closest reference patterns for every target chunk.
+
+    The query side intentionally mirrors the existing maintenance scripts:
+    text-embedding-3-small creates the 1536-dimensional vector and
+    match_rag_patterns performs the cosine-similarity search in Supabase.
+    Retrieval failures do not make /analyze unavailable; the existing local
+    pattern references (when present) remain a safe fallback for the LLM.
+    """
+    local_patterns = [
+        pattern for pattern in load_patterns() if isinstance(pattern, dict)
+    ][:RAG_MATCH_COUNT]
+    if not chunks:
+        return []
+    if not (
+        os.getenv("OPENAI_API_KEY")
+        and os.getenv("SUPABASE_URL")
+        and os.getenv("SUPABASE_KEY")
+    ):
+        return [list(local_patterns) for _ in chunks]
+
+    try:
+        from openai import OpenAI
+        from supabase import create_client
+
+        embedding_response = OpenAI().embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=[chunk.text for chunk in chunks],
+        )
+        embeddings = [item.embedding for item in embedding_response.data]
+        if len(embeddings) != len(chunks):
+            raise ValueError("Embedding count did not match RAG chunk count.")
+
+        supabase = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_KEY"],
+        )
+        pattern_sets: list[list[dict[str, object]]] = []
+        for embedding in embeddings:
+            response = supabase.rpc(
+                "match_rag_patterns",
+                {
+                    "query_embedding": embedding,
+                    "match_count": RAG_MATCH_COUNT,
+                },
+            ).execute()
+            rows = response.data or []
+            if not isinstance(rows, list):
+                raise ValueError("RAG search returned a non-list response.")
+            pattern_sets.append(
+                [row for row in rows if isinstance(row, dict)][:RAG_MATCH_COUNT]
+            )
+        return pattern_sets
+    except Exception:
+        logger.exception("RAG retrieval failed; using local pattern references.")
+        return [list(local_patterns) for _ in chunks]
+
+
+def merge_similar_patterns(
+    pattern_sets: list[list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    """Keep the best five unique references for the unchanged API response."""
+    best_by_id: dict[str, dict[str, object]] = {}
+
+    def similarity(pattern: dict[str, object]) -> float:
+        try:
+            return float(pattern.get("similarity", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    for pattern_set in pattern_sets:
+        for pattern in pattern_set:
+            identifier = str(
+                pattern.get(
+                    "id",
+                    json.dumps(pattern, ensure_ascii=False, sort_keys=True),
+                )
+            )
+            current = best_by_id.get(identifier)
+            if current is None or similarity(pattern) > similarity(current):
+                best_by_id[identifier] = pattern
+    return sorted(best_by_id.values(), key=similarity, reverse=True)[:RAG_MATCH_COUNT]
+
+
+def analysis_chunks(messages: list[SeparatedMessage]) -> list[RagChunk]:
+    """Reuse the existing chunker without reparsing or changing speaker roles."""
+    parsed_messages = [
+        ParsedMessage(
+            speaker=message.speaker,
+            text=message.text,
+            kind=message.kind,
+            date=message.date,
+        )
+        for message in messages
+    ]
+    return chunk_messages(parsed_messages)
+
+
 def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
     text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
-    return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
+    values: dict[str, int] = {}
+    for key, words in WORDS.items():
+        evidence_count = sum(text.count(word) for word in words)
+        # With no keyword evidence this fallback must preserve the same meaning
+        # as the LLM: 0 is unobserved, not a weak score.
+        values[key] = (
+            0
+            if evidence_count == 0
+            else min(MAX_VARIABLE_SCORE, 2 + evidence_count)
+        )
+    return values
 
 POSITIVE_VARIABLE_KEYS = ("respect", "interest", "relationship_building")
 DANGER_VARIABLE_KEYS = ("casual_sex_seeking", "self_priority", "relationship_ambiguity")
@@ -186,14 +302,73 @@ def verify_other_quotes(messages: list[SeparatedMessage], quotes: list[str]) -> 
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
-        **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+        **{
+            key: {"type": "integer", "minimum": 0, "maximum": MAX_VARIABLE_SCORE}
+            for key in LLM_VARIABLE_KEYS
+        },
         "kyun_messages": {"type": "array", "items": {"type": "string"}},
         "caution_messages": {"type": "array", "items": {"type": "string"}},
         "evaluation": {"type": "string"},
     },
-    "required": [*VARIABLE_LABELS, "kyun_messages", "caution_messages", "evaluation"],
+    "required": [*LLM_VARIABLE_KEYS, "kyun_messages", "caution_messages", "evaluation"],
     "additionalProperties": False,
 }
+
+LLM_SCORING_RUBRIC = """
+Score only the OTHER speaker's behaviour. USER messages are context for what
+OTHER is responding to, never independent evidence to score. The target chunk
+is the primary evidence. Retrieved RAG patterns are only a calibration aid:
+never copy their a-f values and never infer facts absent from the target chunk.
+
+Every value must be exactly one integer in {0, 1, 2, 3, 4, 5}. 0 means
+"unobservable / no evidence", not "very weak". Use 0 whenever the chunk does
+not contain enough material to evaluate that variable. Do not force every
+variable to 1-5, and distinguish 0 from 1. Evaluate the surrounding context,
+not isolated words such as "好き" or "会いたい".
+
+a = respect and safety (respect for the other person's wishes, feelings,
+availability, and boundaries): 0 no material; 1 clearly dismisses or ignores
+them; 2 prioritises own wishes with weak consideration; 3 ordinary politeness
+or consideration; 4 clearly considers their circumstances, feelings, or
+wishes; 5 actively respects wishes or boundaries in a way that creates strong
+safety.
+
+b = interest and responsiveness toward the other person: 0 no material; 1
+almost no interest or response; 2 formal replies but weak interest in knowing
+them; 3 responds and shows ordinary questions or interest; 4 actively asks
+about feelings, experiences, or preferences; 5 sustained, specific interest
+such as remembering and following up on prior conversations.
+
+c = investment and intention to continue building the relationship: 0 no
+material; 1 almost no effort to maintain contact; 2 keeps contact but has weak
+concrete continuation; 3 shows some intention to talk or meet again; 4 tries
+to make a specific next plan or point of contact; 5 actively spends time,
+plans, or actions to build an ongoing relationship.
+
+d = casual intimacy accompanied by a mismatch in relationship intentions: 0 no
+material; 1 almost no such tendency; 2 a light casual tendency but weak mismatch;
+3 prioritises temporary or limited intimacy over an ongoing relationship; 4
+strongly seeks limited intimacy while avoiding relationship building; 5 clearly
+prioritises temporary or limited intimacy despite an explicit mismatch with what
+the other person wants. Intimate topics alone are not evidence of a high score.
+
+e = self-priority / treating the other person as a means: 0 no material; 1
+almost no self-priority tendency; 2 somewhat prioritises own wishes while still
+considering the other person; 3 sometimes prioritises own convenience over
+their circumstances; 4 discounts their wishes or convenience to press a demand;
+5 strongly treats them as a means to achieve a personal goal. Stating a wish
+alone is not negative evidence: especially consider behaviour after the other
+person's circumstances or refusal are shown.
+
+f = ambiguity or avoidance: 0 no material; 1 almost no avoidance; 2 slightly
+ambiguous wording or avoidance; 3 gives somewhat ambiguous answers about future
+plans or the relationship; 4 avoids a clear question and keeps the relationship
+ambiguous; 5 consistently avoids answers and strongly maintains ambiguity when
+the relationship needs to be clarified. Do not score high merely because a plan
+is undecided or a reply is vague: prioritise avoidance in a context that calls
+for a clear answer.
+""".strip()
+
 
 def build_llm_prompt(
     messages: list[SeparatedMessage],
@@ -201,12 +376,22 @@ def build_llm_prompt(
     labels: dict[str, str],
     user_name: str,
     other_name: str,
+    transcript: str | None = None,
 ) -> str:
-    transcript = "\n".join(f"[{other_name if m.speaker == 'OTHER' else user_name if m.speaker == 'USER' else m.speaker}] {m.text}" for m in messages)
+    if transcript is None:
+        transcript = "\n".join(
+            f"[{other_name if m.speaker == 'OTHER' else user_name if m.speaker == 'USER' else m.speaker}] {m.text}"
+            for m in messages
+        )
     return f"""You are the analysis engine behind kyunpass. Its mission is to help {user_name} find out whether {other_name}'s feelings are pure (純粋) rather than calculated (打算的), so {user_name} can resolve romantic anxiety early and avoid trouble before it happens. Do not make {user_name} suspicious of or aggressive toward {other_name} for its own sake — the goal is protecting {user_name}, not "winning" the relationship or scoring technique.
 
-Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Base the six scores strictly on the content of {other_name}'s own messages — {user_name}'s messages are provided only as context for what {other_name} was responding to, and must never themselves be scored or quoted. Every score and every quote must be traceable to a specific message actually sent by {other_name}. Return JSON only:
-- integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity
+Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Base the six scores strictly on the content of {other_name}'s own messages — {user_name}'s messages are provided only as context for what {other_name} was responding to, and must never themselves be scored or quoted. Every score and every quote must be traceable to a specific message actually sent by {other_name}.
+
+Scoring rules:
+{LLM_SCORING_RUBRIC}
+
+Return JSON only:
+- integer 0-5 values for a, b, c, d, e, f (in that exact meaning and no other scoring keys)
 - kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of respect/interest/relationship_building (empty array if none)
 - caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
 - evaluation: a short Japanese evaluation. If casual_sex_seeking, self_priority, or relationship_ambiguity is {DANGER_THRESHOLD} or higher, evaluation MUST clearly and gently warn {user_name} and encourage them to pause and be cautious (引き止める) instead of describing the situation neutrally — protect {user_name}, do not attack {other_name}. Otherwise, describe the positive signs found.
@@ -232,12 +417,20 @@ def infer_with_llm(
     labels: dict[str, str],
     user_name: str,
     other_name: str,
+    transcript: str | None = None,
 ) -> LLMResult | None:
     if not os.getenv("OPENAI_API_KEY"):
         return None
     try:
         from openai import OpenAI
-        prompt = build_llm_prompt(messages, patterns, labels, user_name, other_name)
+        prompt = build_llm_prompt(
+            messages,
+            patterns,
+            labels,
+            user_name,
+            other_name,
+            transcript=transcript,
+        )
         output = (
             OpenAI()
             .responses.create(
@@ -256,7 +449,13 @@ def infer_with_llm(
             .output_text
         )
         data = json.loads(output)
-        variables = {key: max(0, min(100, int(data[key]))) for key in VARIABLE_LABELS}
+        variables = {
+            variable_key: max(
+                0,
+                min(MAX_VARIABLE_SCORE, int(data[llm_key])),
+            )
+            for variable_key, llm_key in VARIABLE_TO_LLM_KEY.items()
+        }
         evaluation = str(data["evaluation"]).strip()
         if not evaluation:
             raise ValueError("LLM returned an empty evaluation.")
@@ -267,8 +466,86 @@ def infer_with_llm(
         logger.exception("LLM analysis failed; falling back to keyword-based scoring.")
         return None
 
+def average_observed_variables(
+    chunk_values: list[dict[str, int]],
+) -> dict[str, int]:
+    """Average only observed (1-5) chunk scores; 0 remains unobservable."""
+    averaged: dict[str, int] = {}
+    for key in VARIABLE_LABELS:
+        observed = [values[key] for values in chunk_values if values[key] > 0]
+        if not observed:
+            averaged[key] = 0
+            continue
+        average = sum(observed) / len(observed)
+        averaged[key] = min(
+            MAX_VARIABLE_SCORE,
+            max(1, int(average + 0.5)),
+        )
+    return averaged
+
+
+def combine_chunk_llm_results(results: list[LLMResult]) -> LLMResult | None:
+    """Aggregate per-chunk LLM outputs without asking the model to average."""
+    if not results:
+        return None
+
+    def unique_texts(attribute: str) -> list[str]:
+        texts = [str(text) for result in results for text in getattr(result, attribute)]
+        return list(dict.fromkeys(texts))[:MAX_EVIDENCE_MESSAGES]
+
+    evaluations = list(dict.fromkeys(result.evaluation for result in results if result.evaluation))
+    return LLMResult(
+        variables=average_observed_variables([result.variables for result in results]),
+        evaluation="\n".join(evaluations[:MAX_EVIDENCE_MESSAGES]),
+        kyun_messages=unique_texts("kyun_messages"),
+        caution_messages=unique_texts("caution_messages"),
+    )
+
+
+def infer_chunks_with_llm(
+    chunks: list[RagChunk],
+    pattern_sets: list[list[dict[str, object]]],
+    labels: dict[str, str],
+    user_name: str,
+    other_name: str,
+) -> LLMResult | None:
+    """Evaluate each target chunk and aggregate scores in Python."""
+    if len(chunks) != len(pattern_sets):
+        logger.error("RAG chunk and pattern-set counts did not match.")
+        return None
+
+    results: list[LLMResult] = []
+    for chunk, patterns in zip(chunks, pattern_sets, strict=True):
+        result = infer_with_llm(
+            [],
+            patterns,
+            labels,
+            user_name,
+            other_name,
+            transcript=chunk.text,
+        )
+        if result is None:
+            return None
+        results.append(result)
+    return combine_chunk_llm_results(results)
+
+
 def calculate_f(values: dict[str, int]) -> int:
-    x = 3 * values["respect"] + 4 * values["interest"] + 2 * values["relationship_building"] - 5 * values["casual_sex_seeking"] - 3 * values["self_priority"] - values["relationship_ambiguity"]
+    # The established function is calibrated for 0-100 inputs. Preserve its
+    # formula and neutral baseline while mapping observed 1-5 values to 20-100.
+    # Crucially, an unobserved 0 stays 0 rather than being turned into "weak".
+    scaled_values = {
+        key: max(0, min(MAX_VARIABLE_SCORE, value)) * LEGACY_VARIABLE_SCALE
+        for key, value in values.items()
+    }
+    x = (
+        3 * scaled_values["respect"]
+        + 4 * scaled_values["interest"]
+        + 2 * scaled_values["relationship_building"]
+        - 5 * scaled_values["casual_sex_seeking"]
+        - 3 * scaled_values["self_priority"]
+        - scaled_values["relationship_ambiguity"]
+    )
     return max(0, min(100, (x + 900) // 18))
 
 def build_timeline(messages: list[SeparatedMessage], g: float) -> list[TimelinePoint]:
@@ -287,6 +564,8 @@ def build_timeline(messages: list[SeparatedMessage], g: float) -> list[TimelineP
     return points
 
 def fallback_evaluation(score: float, values: dict[str, int]) -> str:
+    if not any(values.values()):
+        return "会話からは各項目を判断するための材料を十分に確認できませんでした。"
     riskiest = max(DANGER_VARIABLE_KEYS, key=values.get)
     if values[riskiest] >= DANGER_THRESHOLD:
         return f"『{VARIABLE_LABELS[riskiest]}』という気になるサインが見られます。無理に関係を進めず、一度立ち止まって様子を見ることをおすすめします。"
@@ -346,7 +625,6 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 "出力したtxtファイルを使い、名前選択画面に表示された候補をそのまま選んでください。"
             ),
         )
-    patterns = load_patterns()
     period_entry = context_entry("A", request.context.period)
     meeting_entry = context_entry("B", request.context.meeting)
     relationship_entry = context_entry("C", request.context.relationship)
@@ -355,7 +633,16 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         "meeting": str(meeting_entry["label"]),
         "relationship": str(relationship_entry["label"]),
     }
-    llm_result = infer_with_llm(messages, patterns, labels, request.user_name, request.other_name)
+    chunks = analysis_chunks(messages)
+    pattern_sets = retrieve_patterns_for_chunks(chunks)
+    patterns = merge_similar_patterns(pattern_sets)
+    llm_result = infer_chunks_with_llm(
+        chunks,
+        pattern_sets,
+        labels,
+        request.user_name,
+        request.other_name,
+    )
     if llm_result:
         values, llm_evaluation, kyun_messages, caution_messages = llm_result
         kyun_messages = verify_other_quotes(messages, kyun_messages)
