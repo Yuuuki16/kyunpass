@@ -11,6 +11,9 @@ RUN uv sync --frozen --no-install-project --no-dev
 COPY backend/app ./app
 RUN uv sync --frozen --no-dev
 
+# app/main.py は起動ディレクトリの2階層上の db/patterns.json を読むため、/app と同じ階層に置く
+COPY db/patterns.json /db/patterns.json
+
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
