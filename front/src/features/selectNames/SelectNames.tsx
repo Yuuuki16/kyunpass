@@ -163,16 +163,16 @@ export function SelectNames() {
 
           <div className="flex flex-col gap-5 px-5 py-6">
             <p className="text-[12px] leading-[17px] text-[#4B4B4B]">
-              トーク履歴から話者を検出しました。あなたと相手の名前をそれぞれ選んでください。
+              トーク履歴から話者を検出しました。受け取り手と調査対象者の名前をそれぞれ選んでください。
             </p>
 
             <label className="flex flex-col gap-1.5">
               <span className="text-[14px] font-bold text-[#D4537E]">
-                自分の名前
+                調査対象者の名前
               </span>
               <select
-                value={userName}
-                onChange={handleUserNameChange}
+                value={otherName}
+                onChange={handleOtherNameChange}
                 className="h-11 rounded-lg border border-[#FF99B4] bg-white px-3 text-[14px] text-[#4B4B4B]"
               >
                 <option value="">選択してください</option>
@@ -183,14 +183,13 @@ export function SelectNames() {
                 ))}
               </select>
             </label>
-
             <label className="flex flex-col gap-1.5">
               <span className="text-[14px] font-bold text-[#D4537E]">
-                相手の名前
+                受け取り手の名前
               </span>
               <select
-                value={otherName}
-                onChange={handleOtherNameChange}
+                value={userName}
+                onChange={handleUserNameChange}
                 className="h-11 rounded-lg border border-[#FF99B4] bg-white px-3 text-[14px] text-[#4B4B4B]"
               >
                 <option value="">選択してください</option>
