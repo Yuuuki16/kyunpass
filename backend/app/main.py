@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -13,12 +15,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.line_parser import parse as parse_talk_history
 from app.line_parser import parse_header, split_into_records, suggest_speaker_names
 
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="kyunpass API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
 TALK_HISTORY_MAX_LENGTH = 2_000_000
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -66,9 +73,9 @@ class AnalyzeResponse(BaseModel):
     similar_patterns: list[dict[str, object]]
     evaluation: str
 
-def coefficient(group: str, option: str) -> float:
+def context_entry(group: str, option: str) -> dict[str, float | str]:
     try:
-        return float(CONTEXT_OPTIONS[group][option]["coefficient"])
+        return CONTEXT_OPTIONS[group][option]
     except KeyError as error:
         raise HTTPException(status_code=422, detail=f"Invalid {group} option: {option}") from error
 
@@ -88,19 +95,71 @@ def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
     text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
     return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
 
-def infer_with_llm(messages: list[SeparatedMessage], patterns: list[dict[str, object]]) -> tuple[dict[str, int], str] | None:
-    return None  # LLM呼び出しを一時停止中。常にフォールバック(モック)を使う。
+LLM_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+        "evaluation": {"type": "string"},
+    },
+    "required": [*VARIABLE_LABELS, "evaluation"],
+    "additionalProperties": False,
+}
+
+def build_llm_prompt(
+    messages: list[SeparatedMessage],
+    patterns: list[dict[str, object]],
+    labels: dict[str, str],
+    user_name: str,
+    other_name: str,
+) -> str:
+    transcript = "\n".join(f"[{other_name if m.speaker == 'OTHER' else user_name if m.speaker == 'USER' else m.speaker}] {m.text}" for m in messages)
+    return f"""Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Return JSON only: integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity; plus a short Japanese evaluation.
+Relationship context:
+- どのくらいの期間やり取りしているか: {labels["period"]}
+- 出会ったきっかけ: {labels["meeting"]}
+- 現在の関係性: {labels["relationship"]}
+Conversation:
+{transcript}
+Retrieved similar patterns (reference only):
+{json.dumps(patterns, ensure_ascii=False)}"""
+
+def infer_with_llm(
+    messages: list[SeparatedMessage],
+    patterns: list[dict[str, object]],
+    labels: dict[str, str],
+    user_name: str,
+    other_name: str,
+) -> tuple[dict[str, int], str] | None:
     if not os.getenv("OPENAI_API_KEY"):
         return None
     try:
         from openai import OpenAI
-        transcript = "\n".join(f"[{m.speaker}] {m.text}" for m in messages)
-        prompt = f"""Analyze the OTHER speaker's romantic intent in this LINE conversation. Return JSON only: integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity; plus a short Japanese evaluation. Retrieved similar patterns are reference only.\nConversation:\n{transcript}\nPatterns:\n{json.dumps(patterns, ensure_ascii=False)}"""
-        output = OpenAI().responses.create(model=os.getenv("OPENAI_MODEL", "gpt-5-mini"), input=prompt).output_text
+        prompt = build_llm_prompt(messages, patterns, labels, user_name, other_name)
+        output = (
+            OpenAI()
+            .responses.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+                input=prompt,
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "kyun_analysis",
+                        "schema": LLM_RESPONSE_SCHEMA,
+                        "strict": True,
+                    }
+                },
+                timeout=OPENAI_TIMEOUT_SECONDS,
+            )
+            .output_text
+        )
         data = json.loads(output)
         variables = {key: max(0, min(100, int(data[key]))) for key in VARIABLE_LABELS}
-        return variables, str(data["evaluation"]).strip()
+        evaluation = str(data["evaluation"]).strip()
+        if not evaluation:
+            raise ValueError("LLM returned an empty evaluation.")
+        return variables, evaluation
     except Exception:
+        logger.exception("LLM analysis failed; falling back to keyword-based scoring.")
         return None
 
 def calculate_f(values: dict[str, int]) -> int:
@@ -139,9 +198,17 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             detail="発言者名がトーク履歴内の表記と一致しない行が多数あります。user_name/other_nameを確認してください。",
         )
     patterns = load_patterns()
-    llm_result = infer_with_llm(messages, patterns)
+    period_entry = context_entry("A", request.context.period)
+    meeting_entry = context_entry("B", request.context.meeting)
+    relationship_entry = context_entry("C", request.context.relationship)
+    labels = {
+        "period": str(period_entry["label"]),
+        "meeting": str(meeting_entry["label"]),
+        "relationship": str(relationship_entry["label"]),
+    }
+    llm_result = infer_with_llm(messages, patterns, labels, request.user_name, request.other_name)
     values, llm_evaluation = llm_result or (fallback_variables(messages), "")
-    g = coefficient("A", request.context.period) * coefficient("B", request.context.meeting) * coefficient("C", request.context.relationship)
+    g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
     f_score = calculate_f(values)
     k = int(f_score * g)
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
