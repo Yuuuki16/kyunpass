@@ -12,15 +12,19 @@ const zenMaruGothic = Zen_Maru_Gothic({
   display: "swap",
 });
 
-function readInvestigationResult() {
-  if (typeof window === "undefined") {
-    return {
-      candidates: [] as string[],
-      suggestedUserName: "",
-      suggestedOtherName: "",
-    };
-  }
+type InvestigationResult = {
+  candidates: string[];
+  suggestedUserName: string;
+  suggestedOtherName: string;
+};
 
+const EMPTY_INVESTIGATION_RESULT: InvestigationResult = {
+  candidates: [],
+  suggestedUserName: "",
+  suggestedOtherName: "",
+};
+
+function readInvestigationResult() {
   const storedCandidates = sessionStorage.getItem("kyunpass:candidateSpeakers");
   let candidates: string[] = [];
   try {
@@ -50,17 +54,26 @@ function readInvestigationResult() {
 
 export function SelectNames() {
   const router = useRouter();
-  const [{ candidates, suggestedUserName, suggestedOtherName }] = useState(
-    readInvestigationResult,
-  );
-  const [userName, setUserName] = useState(suggestedUserName);
-  const [otherName, setOtherName] = useState(suggestedOtherName);
+  const [investigationResult, setInvestigationResult] =
+    useState<InvestigationResult>(EMPTY_INVESTIGATION_RESULT);
+  const [hasLoadedInvestigation, setHasLoadedInvestigation] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [otherName, setOtherName] = useState("");
+  const { candidates } = investigationResult;
 
   useEffect(() => {
-    if (candidates.length === 0) {
+    const result = readInvestigationResult();
+    setInvestigationResult(result);
+    setUserName(result.suggestedUserName);
+    setOtherName(result.suggestedOtherName);
+    setHasLoadedInvestigation(true);
+  }, []);
+
+  useEffect(() => {
+    if (hasLoadedInvestigation && candidates.length === 0) {
       router.replace("/");
     }
-  }, [candidates, router]);
+  }, [candidates, hasLoadedInvestigation, router]);
 
   const handleUserNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setUserName(event.target.value);
@@ -81,7 +94,7 @@ export function SelectNames() {
     router.push("/chatbot");
   };
 
-  if (candidates.length === 0) {
+  if (!hasLoadedInvestigation || candidates.length === 0) {
     return null;
   }
 
