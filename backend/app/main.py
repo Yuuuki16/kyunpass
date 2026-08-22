@@ -10,8 +10,8 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.line_parser import extract_chat_partner_name, parse as parse_talk_history
-from app.line_parser import split_into_records, strip_export_header
+from app.line_parser import parse as parse_talk_history
+from app.line_parser import parse_header, split_into_records, suggest_speaker_names
 
 app = FastAPI(title="kyunpass API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -166,16 +166,13 @@ async def investigate(file: UploadFile) -> dict[str, object]:
     if len(talk_history) > TALK_HISTORY_MAX_LENGTH:
         raise HTTPException(status_code=422, detail="ファイルサイズが大きすぎます")
 
-    records = split_into_records(strip_export_header(talk_history))
+    body, chat_partner_name = parse_header(talk_history)
+    records = split_into_records(body)
     if not records:
         raise HTTPException(status_code=422, detail="トーク履歴の内容を読み取れませんでした")
 
     candidate_speakers = sorted({record.name for record in records if record.name})
-
-    chat_partner_name = extract_chat_partner_name(talk_history)
-    suggested_other_name = chat_partner_name if chat_partner_name in candidate_speakers else None
-    other_candidates = [name for name in candidate_speakers if name != suggested_other_name]
-    suggested_user_name = other_candidates[0] if suggested_other_name and len(other_candidates) == 1 else None
+    suggested_other_name, suggested_user_name = suggest_speaker_names(candidate_speakers, chat_partner_name)
 
     return {
         "status": "received",

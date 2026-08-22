@@ -40,26 +40,47 @@ class ParsedHistory:
     messages: list[ParsedMessage]
 
 
-def strip_export_header(raw: str) -> str:
-    """Drop the leading `[LINE] ...` / `保存日時：...` preamble block, if present."""
-    lines = raw.splitlines()
-    index = 0
-    while index < len(lines) and (lines[index].strip() == "" or HEADER_LINE_RE.match(lines[index].strip())):
-        index += 1
-    return "\n".join(lines[index:])
-
-
-def extract_chat_partner_name(raw: str) -> str | None:
-    """Read the counterpart's name out of LINE's `[LINE] {name}とのトーク履歴` title line.
+def parse_header(raw: str) -> tuple[str, str | None]:
+    """Drop the leading `[LINE] ...` / `保存日時：...` preamble block, if present,
+    and read the counterpart's name out of a `[LINE] {name}とのトーク履歴` title line.
 
     LINE's export title always names the *other* participant (it is always "my
     chat with X"), so this is a reliable signal for who to suggest as other_name.
+    Both are extracted in a single pass over the preamble so a multi-megabyte
+    talk_history is only ever split into lines once here (title lines only ever
+    appear in the header block, never in message bodies).
     """
-    for line in raw.splitlines():
-        match = CHAT_TITLE_RE.match(line.strip())
-        if match:
-            return match.group(1).strip()
-    return None
+    lines = raw.splitlines()
+    index = 0
+    chat_partner_name: str | None = None
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if stripped == "":
+            index += 1
+            continue
+        if not HEADER_LINE_RE.match(stripped):
+            break
+        title_match = CHAT_TITLE_RE.match(stripped)
+        if title_match:
+            chat_partner_name = title_match.group(1).strip()
+        index += 1
+    return "\n".join(lines[index:]), chat_partner_name
+
+
+def suggest_speaker_names(
+    candidate_speakers: list[str], chat_partner_name: str | None
+) -> tuple[str | None, str | None]:
+    """Suggest which candidate speaker is the user and which is the other person.
+
+    The chat title reliably names the other person, so it is trusted whenever it
+    matches one of the detected speakers. The user is only suggested when exactly
+    one candidate remains once the other person is known, since otherwise (group
+    chats, or no title match) there is no reliable signal for who is the user.
+    """
+    suggested_other_name = chat_partner_name if chat_partner_name in candidate_speakers else None
+    remaining_candidates = [name for name in candidate_speakers if name != suggested_other_name]
+    suggested_user_name = remaining_candidates[0] if suggested_other_name and len(remaining_candidates) == 1 else None
+    return suggested_other_name, suggested_user_name
 
 
 def _finalize_text(text: str) -> str:
@@ -158,7 +179,7 @@ def classify_speaker(name: str | None, user_name: str, other_name: str) -> Speak
 
 
 def parse(raw: str, user_name: str, other_name: str) -> ParsedHistory:
-    body = strip_export_header(raw)
+    body, _ = parse_header(raw)
     records = split_into_records(body)
     messages = [
         ParsedMessage(speaker=classify_speaker(record.name, user_name, other_name), text=record.text, kind=record.kind)
