@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { Zen_Maru_Gothic } from "next/font/google";
@@ -40,21 +40,39 @@ type AnalyzeResult = {
   timeline: TimelinePoint[];
 };
 
-function readAnalyzeResult(): AnalyzeResult {
-  if (typeof window === "undefined") {
-    return { kyunScore: null, evaluation: "", timeline: [] };
+const SERVER_SNAPSHOT: AnalyzeResult = { kyunScore: null, evaluation: "", timeline: [] };
+
+let cachedRaw: string | null = null;
+let cachedResult: AnalyzeResult = SERVER_SNAPSHOT;
+
+function getSnapshot(): AnalyzeResult {
+  const raw = [
+    sessionStorage.getItem("kyunpass:kyunScore"),
+    sessionStorage.getItem("kyunpass:evaluation"),
+    sessionStorage.getItem("kyunpass:timeline"),
+  ].join(" ");
+
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    const storedScore = sessionStorage.getItem("kyunpass:kyunScore");
+    const parsedScore = storedScore !== null ? Number(storedScore) : NaN;
+    cachedResult = {
+      kyunScore: Number.isFinite(parsedScore) ? parsedScore : null,
+      evaluation: sessionStorage.getItem("kyunpass:evaluation") ?? "",
+      timeline: parseTimeline(sessionStorage.getItem("kyunpass:timeline")),
+    };
   }
 
-  const storedScore = sessionStorage.getItem("kyunpass:kyunScore");
-  const parsedScore = storedScore !== null ? Number(storedScore) : NaN;
-  const evaluation = sessionStorage.getItem("kyunpass:evaluation") ?? "";
-  const timeline = parseTimeline(sessionStorage.getItem("kyunpass:timeline"));
+  return cachedResult;
+}
 
-  return {
-    kyunScore: Number.isFinite(parsedScore) ? parsedScore : null,
-    evaluation,
-    timeline,
-  };
+function getServerSnapshot(): AnalyzeResult {
+  return SERVER_SNAPSHOT;
+}
+
+function subscribe(callback: () => void): () => void {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
 }
 
 function formatShortDate(date: string): string {
@@ -184,10 +202,19 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
 
 export function Result() {
   const router = useRouter();
-  const [{ kyunScore, evaluation, timeline }] = useState(readAnalyzeResult);
+  const { kyunScore, evaluation, timeline } = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
 
   useEffect(() => {
-    if (kyunScore === null) {
+    // Re-read the store directly rather than trusting the `kyunScore` render
+    // value here: the first client render intentionally reuses the SSR
+    // placeholder (kyunScore === null) to avoid a hydration mismatch, and
+    // this effect can fire against that placeholder before the corrected
+    // render lands. Reading live sessionStorage sidesteps that race.
+    if (getSnapshot().kyunScore === null) {
       router.replace("/");
     }
   }, [kyunScore, router]);
