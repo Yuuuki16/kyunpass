@@ -188,10 +188,12 @@ def bucket_messages_by_date(messages: list[SeparatedMessage]) -> dict[str, list[
 def qualifying_dates(buckets: dict[str, list[SeparatedMessage]]) -> list[str]:
     return [date for date in sorted(buckets) if any(m.speaker == "OTHER" and m.kind == "text" for m in buckets[date])]
 
+VARIABLE_SCORE_SCHEMA: dict[str, object] = {"type": "integer", "minimum": 0, "maximum": 100}
+
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
-        **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+        **{key: VARIABLE_SCORE_SCHEMA for key in VARIABLE_LABELS},
         "kyun_messages": {"type": "array", "items": {"type": "string"}},
         "caution_messages": {"type": "array", "items": {"type": "string"}},
         "evaluation": {"type": "string"},
@@ -201,7 +203,7 @@ LLM_RESPONSE_SCHEMA: dict[str, object] = {
                 "type": "object",
                 "properties": {
                     "date": {"type": "string"},
-                    **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+                    **{key: VARIABLE_SCORE_SCHEMA for key in VARIABLE_LABELS},
                 },
                 "required": ["date", *VARIABLE_LABELS],
                 "additionalProperties": False,
