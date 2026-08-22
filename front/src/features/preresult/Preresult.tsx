@@ -18,15 +18,17 @@ const METER_LEVELS = [22, 68, 36, 84, 48, 76, 42, 90];
 
 function readPreresultData() {
   if (typeof window === "undefined") {
-    return { otherName: "", kyunScore: null as number | null };
+    return { otherName: "", userName: "", kyunScore: null as number | null };
   }
 
   const otherName = sessionStorage.getItem("kyunpass:otherName") ?? "";
+  const userName = sessionStorage.getItem("kyunpass:userName") ?? "";
   const storedScore = sessionStorage.getItem("kyunpass:kyunScore");
   const parsedScore = storedScore !== null ? Number(storedScore) : NaN;
 
   return {
     otherName,
+    userName,
     kyunScore: Number.isFinite(parsedScore)
       ? Math.min(100, Math.max(0, parsedScore))
       : null,
@@ -35,14 +37,14 @@ function readPreresultData() {
 
 export function Preresult() {
   const router = useRouter();
-  const [{ otherName, kyunScore }] = useState(readPreresultData);
+  const [{ otherName, userName, kyunScore }] = useState(readPreresultData);
   const [isIntroVisible, setIsIntroVisible] = useState(false);
   const [isMeterVisible, setIsMeterVisible] = useState(false);
   const [meterLevel, setMeterLevel] = useState(0);
   const [isRevealed, setIsRevealed] = useState(false);
 
   useEffect(() => {
-    if (kyunScore === null || otherName === "") {
+    if (kyunScore === null || otherName === "" || userName === "") {
       router.replace("/");
       return;
     }
@@ -77,9 +79,9 @@ export function Preresult() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [kyunScore, otherName, router]);
+  }, [kyunScore, otherName, userName, router]);
 
-  if (kyunScore === null || otherName === "") {
+  if (kyunScore === null || otherName === "" || userName === "") {
     return null;
   }
 
@@ -104,7 +106,7 @@ export function Preresult() {
               : "translate-y-5 opacity-0"
           }`}
         >
-          {otherName}からあなたへの
+          {otherName}から{userName}への
           <br />
           キュン度は・・・
         </p>
