@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { Zen_Maru_Gothic } from "next/font/google";
@@ -14,25 +15,39 @@ const zenMaruGothic = Zen_Maru_Gothic({
 const questions = [
   {
     id: "duration",
+    field: "period",
     message: "出会ってからの期間",
-    options: ["1週間未満", "1週間〜1か月", "1〜3か月", "3か月〜1年", "1年以上"],
+    options: [
+      { code: "A1", label: "1週間未満" },
+      { code: "A2", label: "1週間〜1か月" },
+      { code: "A3", label: "1〜3か月" },
+      { code: "A4", label: "3か月〜1年" },
+      { code: "A5", label: "1年以上" },
+    ],
   },
   {
     id: "situation",
+    field: "meeting",
     message: "出会った状況",
     options: [
-      "友人・知人の紹介",
-      "学校・大学・サークル",
-      "バイト・職場",
-      "SNS・オンライン",
-      "趣味・イベント",
-      "偶然",
+      { code: "B1", label: "友人・知人の紹介" },
+      { code: "B2", label: "学校・大学・サークル" },
+      { code: "B3", label: "バイト・職場" },
+      { code: "B4", label: "SNS・オンライン" },
+      { code: "B5", label: "趣味・イベント" },
+      { code: "B6", label: "偶然" },
     ],
   },
   {
     id: "relationship",
+    field: "relationship",
     message: "今の関係性",
-    options: ["ほとんど面識がない", "知り合い", "友人", "恋人"],
+    options: [
+      { code: "C1", label: "ほとんど面識がない" },
+      { code: "C2", label: "知り合い" },
+      { code: "C3", label: "友人" },
+      { code: "C4", label: "恋人" },
+    ],
   },
 ] as const;
 
@@ -40,10 +55,12 @@ type QuestionId = (typeof questions)[number]["id"];
 
 type Answer = {
   questionId: QuestionId;
+  code: string;
   label: string;
 };
 
 export function Chatbot() {
+  const router = useRouter();
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -66,7 +83,10 @@ export function Chatbot() {
     }
   }, [answers.length, isConfirmed]);
 
-  const handleAnswer = (questionId: QuestionId, label: string) => {
+  const handleAnswer = (
+    questionId: QuestionId,
+    option: { code: string; label: string },
+  ) => {
     setAnswers((currentAnswers) => {
       const currentQuestion = questions[currentAnswers.length];
 
@@ -77,7 +97,10 @@ export function Chatbot() {
       shouldFocusFirstOptionRef.current =
         currentAnswers.length + 1 < questions.length;
 
-      return [...currentAnswers, { questionId, label }];
+      return [
+        ...currentAnswers,
+        { questionId, code: option.code, label: option.label },
+      ];
     });
   };
 
@@ -96,9 +119,52 @@ export function Chatbot() {
     });
   };
 
-  const handleConfirm = () => {
-    if (answers.length === questions.length) {
-      setIsConfirmed(true);
+  const handleConfirm = async () => {
+    if (answers.length !== questions.length) return;
+
+    setIsConfirmed(true);
+    router.push("/loading");
+
+    try {
+      const talkHistory = sessionStorage.getItem("kyunpass:talkHistory") ?? "";
+      const userName = sessionStorage.getItem("kyunpass:userName") ?? "";
+      const otherName = sessionStorage.getItem("kyunpass:otherName") ?? "";
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/analyze`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_name: userName,
+            other_name: otherName,
+            context: {
+              period: answers[0].code,
+              meeting: answers[1].code,
+              relationship: answers[2].code,
+            },
+            talk_history: talkHistory,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail === "string" ? data.detail : "分析に失敗しました",
+        );
+      }
+
+      sessionStorage.setItem("kyunpass:kyunScore", String(data.kyun_score));
+      sessionStorage.setItem(
+        "kyunpass:evaluation",
+        typeof data.evaluation === "string" ? data.evaluation : "",
+      );
+
+      router.push("/result");
+    } catch {
+      router.push("/");
     }
   };
 
@@ -177,7 +243,7 @@ export function Chatbot() {
                           </legend>
                           {question.options.map((option, optionIndex) => (
                             <button
-                              key={option}
+                              key={option.code}
                               ref={
                                 optionIndex === 0 ? firstOptionRef : undefined
                               }
@@ -185,7 +251,7 @@ export function Chatbot() {
                               onClick={() => handleAnswer(question.id, option)}
                               className="min-h-9 rounded-lg border border-[#FF99B4] bg-white px-3 py-1.5 text-left text-[14px] leading-5 text-[#D4537E]"
                             >
-                              {option}
+                              {option.label}
                             </button>
                           ))}
                         </fieldset>
