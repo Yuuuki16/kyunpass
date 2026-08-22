@@ -131,7 +131,7 @@ export function Preresult() {
                 y="0"
                 width="200"
                 height="180"
-                fill="#294A47"
+                fill="#EF4444"
                 style={{
                   transform: `translateY(${100 - meterLevel}%)`,
                   transformBox: "fill-box",
