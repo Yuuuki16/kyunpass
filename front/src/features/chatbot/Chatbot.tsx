@@ -203,6 +203,10 @@ export function Chatbot() {
         "kyunpass:evaluation",
         typeof data.evaluation === "string" ? data.evaluation : "",
       );
+      sessionStorage.setItem(
+        "kyunpass:timeline",
+        Array.isArray(data.timeline) ? JSON.stringify(data.timeline) : "[]",
+      );
 
       router.replace("/result");
     } catch (error) {

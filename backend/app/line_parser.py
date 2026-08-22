@@ -10,7 +10,7 @@ Speaker = Literal["USER", "OTHER", "UNKNOWN"]
 
 HEADER_LINE_RE = re.compile(r"^(\[LINE\]\s.*|保存日時：.*)$")
 CHAT_TITLE_RE = re.compile(r"^\[LINE\]\s(.+?)とのトーク履歴$")
-DATE_HEADER_RE = re.compile(r"^\d{4}/\d{1,2}/\d{1,2}\([月火水木金土日]\)$")
+DATE_HEADER_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})\([月火水木金土日]\)$")
 THREE_COL_RE = re.compile(r"^(\d{1,2}:\d{2})\t([^\t]*)\t(.*)$")
 TIME_ONLY_RE = re.compile(r"^(\d{1,2}:\d{2})\t(.*)$")
 TWO_COL_RE = re.compile(r"^([^\t:：\n]{1,50})[:：]\s?(.+)$")
@@ -26,6 +26,7 @@ class RawRecord:
     name: str | None
     text: str
     kind: Kind
+    date: str | None = None
 
 
 @dataclass
@@ -33,6 +34,7 @@ class ParsedMessage:
     speaker: Speaker
     text: str
     kind: Kind
+    date: str | None = None
 
 
 @dataclass
@@ -108,15 +110,17 @@ def split_into_records(raw: str) -> list[RawRecord]:
     embedded newlines).
     """
     records: list[RawRecord] = []
+    current_date: str | None = None
     buffer_name: str | None = None
+    buffer_date: str | None = None
     buffer_lines: list[str] | None = None
 
     def flush_buffer() -> None:
-        nonlocal buffer_name, buffer_lines
+        nonlocal buffer_name, buffer_date, buffer_lines
         if buffer_lines is not None:
             text = _finalize_text("\n".join(buffer_lines))
-            records.append(RawRecord(name=buffer_name, text=text, kind=_classify_kind(text)))
-        buffer_name, buffer_lines = None, None
+            records.append(RawRecord(name=buffer_name, text=text, kind=_classify_kind(text), date=buffer_date))
+        buffer_name, buffer_date, buffer_lines = None, None, None
 
     for raw_line in raw.splitlines():
         line = raw_line.rstrip("\r")
@@ -128,7 +132,12 @@ def split_into_records(raw: str) -> list[RawRecord]:
             continue
 
         stripped = line.strip()
-        if not stripped or DATE_HEADER_RE.match(stripped):
+        if not stripped:
+            continue
+        date_match = DATE_HEADER_RE.match(stripped)
+        if date_match:
+            year, month, day = date_match.groups()
+            current_date = f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
             continue
 
         match = THREE_COL_RE.match(line)
@@ -149,22 +158,22 @@ def split_into_records(raw: str) -> list[RawRecord]:
 
         deleted_with_name = DELETED_WITH_NAME_RE.match(text)
         if deleted_with_name:
-            records.append(RawRecord(name=deleted_with_name.group(1).strip(), text=text, kind="system"))
+            records.append(RawRecord(name=deleted_with_name.group(1).strip(), text=text, kind="system", date=current_date))
             continue
         if DELETED_NO_NAME_RE.match(text):
-            records.append(RawRecord(name=None, text=text, kind="system"))
+            records.append(RawRecord(name=None, text=text, kind="system", date=current_date))
             continue
 
         if text.startswith('"') and text.count('"') % 2 == 1:
-            buffer_name, buffer_lines = name, [text]
+            buffer_name, buffer_date, buffer_lines = name, current_date, [text]
             continue
 
         text = _finalize_text(text)
         if name is None:
-            records.append(RawRecord(name=None, text=text, kind="unparsed"))
+            records.append(RawRecord(name=None, text=text, kind="unparsed", date=current_date))
             continue
 
-        records.append(RawRecord(name=name, text=text, kind=_classify_kind(text)))
+        records.append(RawRecord(name=name, text=text, kind=_classify_kind(text), date=current_date))
 
     flush_buffer()
     return records
@@ -182,7 +191,7 @@ def parse(raw: str, user_name: str, other_name: str) -> ParsedHistory:
     body, _ = parse_header(raw)
     records = split_into_records(body)
     messages = [
-        ParsedMessage(speaker=classify_speaker(record.name, user_name, other_name), text=record.text, kind=record.kind)
+        ParsedMessage(speaker=classify_speaker(record.name, user_name, other_name), text=record.text, kind=record.kind, date=record.date)
         for record in records
     ]
     return ParsedHistory(messages=messages)

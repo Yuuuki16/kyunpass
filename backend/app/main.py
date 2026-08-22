@@ -61,6 +61,14 @@ class SeparatedMessage(BaseModel):
     speaker: Literal["USER", "OTHER", "UNKNOWN"]
     text: str
     kind: Literal["text", "media", "call", "reaction", "system", "unparsed"] = "text"
+    date: str | None = None
+
+class TimelinePoint(BaseModel):
+    date: str
+    kyun_score: int = Field(ge=0, le=100)
+    function_score: int = Field(ge=0, le=100)
+    variables: dict[str, int]
+    message_count: int
 
 class AnalyzeResponse(BaseModel):
 
@@ -72,6 +80,7 @@ class AnalyzeResponse(BaseModel):
     separated_messages: list[SeparatedMessage]
     similar_patterns: list[dict[str, object]]
     evaluation: str
+    timeline: list[TimelinePoint] = []
 
 def context_entry(group: str, option: str) -> dict[str, float | str]:
     try:
@@ -81,7 +90,7 @@ def context_entry(group: str, option: str) -> dict[str, float | str]:
 
 def separate_speakers(history: str, user_name: str, other_name: str) -> list[SeparatedMessage]:
     parsed = parse_talk_history(history, user_name, other_name)
-    return [SeparatedMessage(speaker=m.speaker, text=m.text, kind=m.kind) for m in parsed.messages]
+    return [SeparatedMessage(speaker=m.speaker, text=m.text, kind=m.kind, date=m.date) for m in parsed.messages]
 
 def load_patterns() -> list[dict[str, object]]:
     path = Path(__file__).resolve().parents[2] / "db" / "patterns.json"
@@ -166,6 +175,21 @@ def calculate_f(values: dict[str, int]) -> int:
     x = 3 * values["respect"] + 4 * values["interest"] + 2 * values["relationship_building"] - 5 * values["casual_sex_seeking"] - 3 * values["self_priority"] - values["relationship_ambiguity"]
     return max(0, min(100, (x + 900) // 18))
 
+def build_timeline(messages: list[SeparatedMessage], g: float) -> list[TimelinePoint]:
+    buckets: dict[str, list[SeparatedMessage]] = {}
+    for m in messages:
+        if m.date is not None:
+            buckets.setdefault(m.date, []).append(m)
+    points = []
+    for date in sorted(buckets):
+        bucket = buckets[date]
+        if not any(m.speaker == "OTHER" and m.kind == "text" for m in bucket):
+            continue
+        values = fallback_variables(bucket)
+        f_score = calculate_f(values)
+        points.append(TimelinePoint(date=date, function_score=f_score, kyun_score=int(f_score * g), variables=values, message_count=len(bucket)))
+    return points
+
 def fallback_evaluation(score: float, values: dict[str, int]) -> str:
     positive = max(("respect", "interest", "relationship_building"), key=values.get)
     return f"キュン度は{'高め' if score >= 70 else 'これから伸びる' if score >= 45 else '慎重に見極める'}段階です。特に『{VARIABLE_LABELS[positive]}』傾向が見られます。"
@@ -211,8 +235,9 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
     f_score = calculate_f(values)
     k = int(f_score * g)
+    timeline = build_timeline(messages, g)
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
-  similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values))
+  similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values), timeline=timeline)
 
 @app.post("/investigate")
 async def investigate(file: UploadFile) -> dict[str, object]:
