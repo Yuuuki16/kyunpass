@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "会話からキュン度を測定する",
   icons: {
     icon: "/header/kyunpass-icon.svg",
-    apple: "/header/kyunpass-icon.svg",
+    apple: "/icons/icon-192.png",
   },
 };
 
