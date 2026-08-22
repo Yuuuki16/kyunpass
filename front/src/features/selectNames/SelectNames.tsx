@@ -107,11 +107,24 @@ export function SelectNames() {
   }, [candidates, hasLoadedInvestigation, router]);
 
   const handleUserNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setUserNameOverride(event.target.value);
+    const nextUserName = event.target.value;
+    setUserNameOverride(nextUserName);
+    if (nextUserName !== "" && nextUserName === otherName) {
+      setOtherNameOverride(userName);
+    }
   };
 
   const handleOtherNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setOtherNameOverride(event.target.value);
+    const nextOtherName = event.target.value;
+    setOtherNameOverride(nextOtherName);
+    if (nextOtherName !== "" && nextOtherName === userName) {
+      setUserNameOverride(otherName);
+    }
+  };
+
+  const handleClearNames = () => {
+    setUserNameOverride("");
+    setOtherNameOverride("");
   };
 
   const canSubmit =
@@ -164,7 +177,7 @@ export function SelectNames() {
               >
                 <option value="">選択してください</option>
                 {candidates.map((name) => (
-                  <option key={name} value={name} disabled={name === userName}>
+                  <option key={name} value={name}>
                     {name}
                   </option>
                 ))}
@@ -181,12 +194,21 @@ export function SelectNames() {
               >
                 <option value="">選択してください</option>
                 {candidates.map((name) => (
-                  <option key={name} value={name} disabled={name === otherName}>
+                  <option key={name} value={name}>
                     {name}
                   </option>
                 ))}
               </select>
             </label>
+
+            <button
+              type="button"
+              disabled={userName === "" && otherName === ""}
+              onClick={handleClearNames}
+              className="h-10 w-full rounded-lg border border-[#FF99B4] bg-white text-[14px] font-bold text-[#D4537E] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              選択を解除
+            </button>
 
             <button
               type="button"
