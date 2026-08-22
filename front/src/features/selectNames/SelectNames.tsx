@@ -107,11 +107,19 @@ export function SelectNames() {
   }, [candidates, hasLoadedInvestigation, router]);
 
   const handleUserNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setUserNameOverride(event.target.value);
+    const nextUserName = event.target.value;
+    setUserNameOverride(nextUserName);
+    if (nextUserName !== "" && nextUserName === otherName) {
+      setOtherNameOverride(userName);
+    }
   };
 
   const handleOtherNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setOtherNameOverride(event.target.value);
+    const nextOtherName = event.target.value;
+    setOtherNameOverride(nextOtherName);
+    if (nextOtherName !== "" && nextOtherName === userName) {
+      setUserNameOverride(otherName);
+    }
   };
 
   const handleClearNames = () => {
@@ -169,7 +177,7 @@ export function SelectNames() {
               >
                 <option value="">選択してください</option>
                 {candidates.map((name) => (
-                  <option key={name} value={name} disabled={name === userName}>
+                  <option key={name} value={name}>
                     {name}
                   </option>
                 ))}
@@ -186,7 +194,7 @@ export function SelectNames() {
               >
                 <option value="">選択してください</option>
                 {candidates.map((name) => (
-                  <option key={name} value={name} disabled={name === otherName}>
+                  <option key={name} value={name}>
                     {name}
                   </option>
                 ))}
