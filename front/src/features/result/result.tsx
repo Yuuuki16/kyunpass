@@ -12,24 +12,179 @@ const zenMaruGothic = Zen_Maru_Gothic({
   display: "swap",
 });
 
-function readAnalyzeResult() {
+type TimelinePoint = {
+  date: string;
+  kyun_score: number;
+};
+
+function parseTimeline(raw: string | null): TimelinePoint[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (point): point is TimelinePoint =>
+        typeof point === "object" &&
+        point !== null &&
+        typeof (point as Record<string, unknown>).date === "string" &&
+        typeof (point as Record<string, unknown>).kyun_score === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
+type AnalyzeResult = {
+  kyunScore: number | null;
+  evaluation: string;
+  timeline: TimelinePoint[];
+};
+
+function readAnalyzeResult(): AnalyzeResult {
   if (typeof window === "undefined") {
-    return { kyunScore: null as number | null, evaluation: "" };
+    return { kyunScore: null, evaluation: "", timeline: [] };
   }
 
   const storedScore = sessionStorage.getItem("kyunpass:kyunScore");
   const parsedScore = storedScore !== null ? Number(storedScore) : NaN;
   const evaluation = sessionStorage.getItem("kyunpass:evaluation") ?? "";
+  const timeline = parseTimeline(sessionStorage.getItem("kyunpass:timeline"));
 
   return {
     kyunScore: Number.isFinite(parsedScore) ? parsedScore : null,
     evaluation,
+    timeline,
   };
+}
+
+function formatShortDate(date: string): string {
+  const [, month, day] = date.split("-");
+  return `${Number(month)}/${Number(day)}`;
+}
+
+function smoothPath(coords: { x: number; y: number }[]): string {
+  if (coords.length < 3) {
+    return coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x} ${c.y}`).join(" ");
+  }
+  let path = `M ${coords[0].x} ${coords[0].y}`;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p0 = coords[i === 0 ? i : i - 1];
+    const p1 = coords[i];
+    const p2 = coords[i + 1];
+    const p3 = coords[i + 2 < coords.length ? i + 2 : i + 1];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return path;
+}
+
+function describeTrend(points: TimelinePoint[]): { arrow: string; label: string; className: string } {
+  const delta = points[points.length - 1].kyun_score - points[0].kyun_score;
+  if (delta > 0) {
+    return { arrow: "↑", label: `+${delta}pt`, className: "text-[#D4537E]" };
+  }
+  if (delta < 0) {
+    return { arrow: "↓", label: `${delta}pt`, className: "text-[#9CA3AF]" };
+  }
+  return { arrow: "→", label: "横ばい", className: "text-[#B8B8B8]" };
+}
+
+function TimelineChart({ points }: { points: TimelinePoint[] }) {
+  const width = 220;
+  const height = 110;
+  const showAllLabels = points.length <= 6;
+  const marginLeft = 20;
+  const marginRight = 6;
+  const marginTop = 16;
+  const marginBottom = showAllLabels ? 14 : 4;
+  const plotHeight = height - marginTop - marginBottom;
+  const xStep = points.length > 1 ? (width - marginLeft - marginRight) / (points.length - 1) : 0;
+  const toY = (score: number) => marginTop + plotHeight - (score / 100) * plotHeight;
+
+  const coords = points.map((point, index) => ({
+    x: marginLeft + index * xStep,
+    y: toY(point.kyun_score),
+  }));
+  const linePath = smoothPath(coords);
+  const areaPath = `${linePath} L ${coords[coords.length - 1].x} ${marginTop + plotHeight} L ${coords[0].x} ${marginTop + plotHeight} Z`;
+  const lastIndex = points.length - 1;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-full w-full"
+      role="img"
+      aria-label="きゅん度の推移"
+    >
+      <defs>
+        <linearGradient id="timelineFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#FBCFE8" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#FBCFE8" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
+      {[0, 50, 100].map((value) => (
+        <g key={value}>
+          <line
+            x1={marginLeft}
+            x2={width - marginRight}
+            y1={toY(value)}
+            y2={toY(value)}
+            stroke="#EFEFEF"
+            strokeWidth={1}
+          />
+          <text x={0} y={toY(value) + 3} fontSize={8} fill="#C9C9C9">
+            {value}
+          </text>
+        </g>
+      ))}
+
+      <path d={areaPath} fill="url(#timelineFill)" stroke="none" />
+      <path d={linePath} fill="none" stroke="#D4537E" strokeWidth={2} />
+
+      {coords.map((coord, index) => {
+        const isLast = index === lastIndex;
+        return (
+          <g key={points[index].date}>
+            {isLast && (
+              <>
+                <circle cx={coord.x} cy={coord.y} r={4.5} fill="#D4537E" />
+                <text
+                  x={coord.x}
+                  y={coord.y - 8}
+                  fontSize={10}
+                  fontWeight="bold"
+                  fill="#D4537E"
+                  textAnchor="middle"
+                >
+                  {points[index].kyun_score}%
+                </text>
+              </>
+            )}
+            {showAllLabels && (
+              <text
+                x={coord.x}
+                y={height - 1}
+                fontSize={8}
+                fill="#B8B8B8"
+                textAnchor={index === 0 ? "start" : index === lastIndex ? "end" : "middle"}
+              >
+                {formatShortDate(points[index].date)}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 export function Result() {
   const router = useRouter();
-  const [{ kyunScore, evaluation }] = useState(readAnalyzeResult);
+  const [{ kyunScore, evaluation, timeline }] = useState(readAnalyzeResult);
 
   useEffect(() => {
     if (kyunScore === null) {
@@ -40,6 +195,8 @@ export function Result() {
   if (kyunScore === null) {
     return null;
   }
+
+  const trend = timeline.length >= 2 ? describeTrend(timeline) : null;
 
   return (
     <div
@@ -84,6 +241,28 @@ export function Result() {
             共有
           </button>
         </section>
+
+        {timeline.length >= 2 && trend && (
+          <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white p-4">
+            <div className="flex w-[220px] max-w-full items-baseline justify-between">
+              <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+                きゅん度の推移
+              </h2>
+              <span className={`text-[13px] font-bold ${trend.className}`}>
+                {trend.arrow} {trend.label}
+              </span>
+            </div>
+            <div className="mt-2 h-[110px] w-[220px] max-w-full">
+              <TimelineChart points={timeline} />
+            </div>
+            {timeline.length > 6 && (
+              <div className="mt-1 flex w-[220px] max-w-full justify-between text-[10px] text-[#B8B8B8]">
+                <span>{formatShortDate(timeline[0].date)}</span>
+                <span>{formatShortDate(timeline[timeline.length - 1].date)}</span>
+              </div>
+            )}
+          </section>
+        )}
 
         <button
           type="button"
