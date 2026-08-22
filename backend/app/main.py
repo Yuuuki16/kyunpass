@@ -11,12 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.line_parser import parse as parse_talk_history
+from app.line_parser import split_into_records, strip_export_header
 
 app = FastAPI(title="kyunpass API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
+TALK_HISTORY_MAX_LENGTH = 2_000_000
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -35,7 +37,7 @@ class AnalyzeRequest(BaseModel):
     user_name: str = Field(min_length=1, max_length=100)
     other_name: str = Field(min_length=1, max_length=100)
     context: ContextSelection
-    talk_history: str = Field(min_length=1, max_length=100_000)
+    talk_history: str = Field(min_length=1, max_length=TALK_HISTORY_MAX_LENGTH)
 
     @field_validator("user_name", "other_name")
     @classmethod
@@ -146,8 +148,33 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
   similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values))
 
 @app.post("/investigate")
-async def investigate(file: UploadFile) -> dict[str, str]:
+async def investigate(file: UploadFile) -> dict[str, object]:
     if not (file.filename or "").lower().endswith(".txt"):
         raise HTTPException(status_code=400, detail="txtファイルのみアップロードできます")
 
-    return {"status": "received", "filename": file.filename or ""}
+    raw_bytes = await file.read()
+
+    try:
+        talk_history = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise HTTPException(
+            status_code=422, detail="テキストファイルとして読み込めませんでした。文字コードを確認してください。"
+        ) from error
+
+    if not talk_history.strip():
+        raise HTTPException(status_code=422, detail="ファイルが空です")
+    if len(talk_history) > TALK_HISTORY_MAX_LENGTH:
+        raise HTTPException(status_code=422, detail="ファイルサイズが大きすぎます")
+
+    records = split_into_records(strip_export_header(talk_history))
+    if not records:
+        raise HTTPException(status_code=422, detail="トーク履歴の内容を読み取れませんでした")
+
+    candidate_speakers = sorted({record.name for record in records if record.name})
+
+    return {
+        "status": "received",
+        "filename": file.filename or "",
+        "talk_history": talk_history,
+        "candidate_speakers": candidate_speakers,
+    }
