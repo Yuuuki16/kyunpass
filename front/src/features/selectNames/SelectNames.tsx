@@ -155,7 +155,7 @@ export function SelectNames() {
 
             <label className="flex flex-col gap-1.5">
               <span className="text-[14px] font-bold text-[#D4537E]">
-              調査対象者の名前
+                調査対象者の名前
               </span>
               <select
                 value={otherName}
@@ -172,7 +172,7 @@ export function SelectNames() {
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-[14px] font-bold text-[#D4537E]">
-              受け取り手の名前
+                受け取り手の名前
               </span>
               <select
                 value={userName}
