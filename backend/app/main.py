@@ -27,7 +27,6 @@ app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credenti
 UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
 TALK_HISTORY_MAX_LENGTH = 2_000_000
-OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 DANGER_THRESHOLD = 50
 MAX_EVIDENCE_MESSAGES = 5
 MAX_SIMILAR_PATTERNS = 3
@@ -285,7 +284,6 @@ def infer_with_llm(
                         "strict": True,
                     }
                 },
-                timeout=OPENAI_TIMEOUT_SECONDS,
             )
             .output_text
         )
