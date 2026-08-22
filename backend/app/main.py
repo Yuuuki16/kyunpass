@@ -34,8 +34,15 @@ CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "B": {"B1": {"label": "友人・知人の紹介", "coefficient": 1.0}, "B2": {"label": "学校・大学・サークル", "coefficient": 0.8}, "B3": {"label": "バイト・職場", "coefficient": 0.8}, "B4": {"label": "SNS・オンライン", "coefficient": 0.8}, "B5": {"label": "趣味・イベント", "coefficient": 0.9}, "B6": {"label": "偶然", "coefficient": 0.9}},
     "C": {"C1": {"label": "ほとんど面識がない", "coefficient": 0.8}, "C2": {"label": "知り合い", "coefficient": 0.85}, "C3": {"label": "友人", "coefficient": 0.9}, "C4": {"label": "恋人", "coefficient": 1.0}},
 }
-VARIABLE_LABELS = {"respect": "相手を尊重している", "interest": "相手に関心を持っている", "relationship_building": "継続的な関係性を築こうとしている", "casual_sex_seeking": "カジュアルセックスを探索している", "self_priority": "自分を優先している", "relationship_ambiguity": "恋愛関係を曖昧にしている"}
+VARIABLE_LABELS = {"respect": "相手を尊重している", "interest": "相手に関心を持っている", "relationship_building": "継続的な関係性を築こうとしている", "casual_sex_seeking": "身体的な関係を急いでいる", "self_priority": "自分を優先している", "relationship_ambiguity": "恋愛関係を曖昧にしている"}
 WORDS = {"respect": ("ありがとう", "ごめん", "無理しないで", "大丈夫"), "interest": ("好き", "趣味", "仕事", "体調", "元気"), "relationship_building": ("また", "今度", "会おう", "一緒に", "予定"), "casual_sex_seeking": ("ホテル", "泊ま", "セフレ", "エッチ", "体の関係"), "self_priority": ("俺の都合", "私の都合", "今すぐ", "してよ"), "relationship_ambiguity": ("友達のまま", "曖昧", "付き合えない", "まだ決められない")}
+VULGAR_WORDS = ("セフレ", "エッチ", "ヤリモク", "ヤリ捨て", "SEX", "sex")
+
+def mask_vulgar_words(text: str) -> str:
+    for word in VULGAR_WORDS:
+        text = text.replace(word, "●" * len(word))
+    return text
+
 
 class ContextSelection(BaseModel):
     period: str
@@ -148,6 +155,7 @@ Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} 
 - kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes of {other_name}'s own messages that are the clearest evidence of respect/interest/relationship_building (empty array if none)
 - caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes of {other_name}'s own messages that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
 - evaluation: a short Japanese evaluation. If casual_sex_seeking, self_priority, or relationship_ambiguity is {DANGER_THRESHOLD} or higher, evaluation MUST clearly and gently warn {user_name} and encourage them to pause and be cautious (引き止める) instead of describing the situation neutrally — protect {user_name}, do not attack {other_name}. Otherwise, describe the positive signs found.
+Never use vulgar, graphic, or directly sexual wording anywhere in your response (evaluation text or quoted messages), even when quoting the conversation or describing casual_sex_seeking. Paraphrase or soften such wording instead, e.g. describe it as "身体的な関係を急いでいる" rather than using explicit terms.
 Relationship context:
 - どのくらいの期間やり取りしているか: {labels["period"]}
 - 出会ったきっかけ: {labels["meeting"]}
@@ -272,12 +280,15 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     else:
         values, llm_evaluation = fallback_variables(messages), ""
         kyun_messages, caution_messages = fallback_evidence(messages)
+    kyun_messages = [mask_vulgar_words(text) for text in kyun_messages]
+    caution_messages = [mask_vulgar_words(text) for text in caution_messages]
     g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
     f_score = calculate_f(values)
     k = int(f_score * g)
     timeline = build_timeline(messages, g)
+    evaluation = mask_vulgar_words(llm_evaluation or fallback_evaluation(k, values))
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
-  similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values), kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline)
+  similar_patterns=patterns, evaluation=evaluation, kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline)
 
 @app.post("/investigate")
 async def investigate(file: UploadFile) -> dict[str, object]:

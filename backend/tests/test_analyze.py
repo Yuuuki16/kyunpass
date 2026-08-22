@@ -2,7 +2,15 @@
 
 from fastapi.testclient import TestClient
 
-from app.main import SeparatedMessage, app, build_llm_prompt, fallback_evaluation, fallback_evidence
+from app.main import (
+    VARIABLE_LABELS,
+    SeparatedMessage,
+    app,
+    build_llm_prompt,
+    fallback_evaluation,
+    fallback_evidence,
+    mask_vulgar_words,
+)
 
 client = TestClient(app)
 
@@ -242,6 +250,42 @@ def test_fallback_evidence_extracts_matching_other_messages() -> None:
     assert "今すぐホテル行こうよ" in caution_messages
     assert "今日は天気がいいね" not in kyun_messages
     assert "今日は天気がいいね" not in caution_messages
+
+
+def test_variable_labels_avoid_vulgar_wording() -> None:
+    assert "セックス" not in VARIABLE_LABELS["casual_sex_seeking"]
+    assert "エッチ" not in VARIABLE_LABELS["casual_sex_seeking"]
+
+
+def test_build_llm_prompt_instructs_avoiding_vulgar_wording() -> None:
+    prompt = build_llm_prompt([], [], {"period": "", "meeting": "", "relationship": ""}, user_name="太郎", other_name="花子")
+
+    assert "vulgar" in prompt.lower()
+
+
+def test_mask_vulgar_words_replaces_known_terms() -> None:
+    assert mask_vulgar_words("今すぐエッチしよう") == "今すぐ●●●しよう"
+    assert mask_vulgar_words("セフレにならない？") == "●●●にならない？"
+    assert mask_vulgar_words("また会おうね") == "また会おうね"
+
+
+def test_analyze_masks_vulgar_words_in_caution_messages() -> None:
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n相手: 今すぐエッチしよう\n相手: セフレにならない？",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    joined = " ".join(data["caution_messages"])
+    assert "エッチ" not in joined
+    assert "セフレ" not in joined
+    assert "●" in joined
 
 
 def test_fallback_evaluation_warns_when_danger_signal_is_high() -> None:
