@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { Zen_Maru_Gothic } from "next/font/google";
@@ -11,8 +12,34 @@ const zenMaruGothic = Zen_Maru_Gothic({
   display: "swap",
 });
 
+function readAnalyzeResult() {
+  if (typeof window === "undefined") {
+    return { kyunScore: null as number | null, evaluation: "" };
+  }
+
+  const storedScore = sessionStorage.getItem("kyunpass:kyunScore");
+  const parsedScore = storedScore !== null ? Number(storedScore) : NaN;
+  const evaluation = sessionStorage.getItem("kyunpass:evaluation") ?? "";
+
+  return {
+    kyunScore: Number.isFinite(parsedScore) ? parsedScore : null,
+    evaluation,
+  };
+}
+
 export function Result() {
   const router = useRouter();
+  const [{ kyunScore, evaluation }] = useState(readAnalyzeResult);
+
+  useEffect(() => {
+    if (kyunScore === null) {
+      router.replace("/");
+    }
+  }, [kyunScore, router]);
+
+  if (kyunScore === null) {
+    return null;
+  }
 
   return (
     <div
@@ -39,15 +66,15 @@ export function Result() {
           </h2>
 
           <div className="mt-[10px] flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center justify-center rounded-[20px] bg-[#FBCFE8] text-[20px] leading-[29px] text-white">
-            50%
+            {kyunScore}%
           </div>
 
           <h2 className="mt-6 text-[20px] leading-[29px] font-bold text-[#FBCFE8]">
             判定理由
           </h2>
 
-          <div className="mt-2 flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center rounded-[20px] bg-[#FBCFE8] px-[10px] text-[12px] leading-[17px] text-white">
-            test
+          <div className="mt-2 flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center overflow-y-auto rounded-[20px] bg-[#FBCFE8] px-[10px] py-2 text-[12px] leading-[17px] text-white">
+            {evaluation}
           </div>
 
           <button

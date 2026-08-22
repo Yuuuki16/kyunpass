@@ -13,12 +13,25 @@ const mPlusRounded1c = M_PLUS_Rounded_1c({
 
 type SubmitStatus = "idle" | "submitting" | "error";
 
+function readCarriedOverError(): string | null {
+  if (typeof window === "undefined") return null;
+
+  const stored = sessionStorage.getItem("kyunpass:errorMessage");
+  if (stored) {
+    sessionStorage.removeItem("kyunpass:errorMessage");
+  }
+  return stored;
+}
+
 export function HomeFeature() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<SubmitStatus>("idle");
+  const [initialError] = useState(readCarriedOverError);
+  const [status, setStatus] = useState<SubmitStatus>(
+    initialError ? "error" : "idle",
+  );
   const [errorMessage, setErrorMessage] = useState<string>(
-    "送信に失敗しました。もう一度お試しください。",
+    initialError ?? "送信に失敗しました。もう一度お試しください。",
   );
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
