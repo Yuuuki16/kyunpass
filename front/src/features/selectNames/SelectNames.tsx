@@ -14,12 +14,14 @@ const zenMaruGothic = Zen_Maru_Gothic({
 
 function readInvestigationResult() {
   if (typeof window === "undefined") {
-    return { candidates: [] as string[], suggestedUserName: "", suggestedOtherName: "" };
+    return {
+      candidates: [] as string[],
+      suggestedUserName: "",
+      suggestedOtherName: "",
+    };
   }
 
-  const storedCandidates = sessionStorage.getItem(
-    "kyunpass:candidateSpeakers",
-  );
+  const storedCandidates = sessionStorage.getItem("kyunpass:candidateSpeakers");
   let candidates: string[] = [];
   try {
     const parsed = storedCandidates ? JSON.parse(storedCandidates) : [];
