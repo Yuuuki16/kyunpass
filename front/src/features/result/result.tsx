@@ -138,6 +138,40 @@ function formatShortDate(date: string): string {
   return `${year.slice(2)}/${month}/${day}`;
 }
 
+function getScoreProfile(score: number): {
+  position: string;
+  rank: string;
+} {
+  if (score >= 80) {
+    return { position: "上位 約0.13%", rank: "S+" };
+  }
+  if (score >= 75) {
+    return { position: "上位 約0.62%", rank: "S" };
+  }
+  if (score >= 70) {
+    return { position: "上位 約2.3%", rank: "A+" };
+  }
+  if (score >= 65) {
+    return { position: "上位 約6.7%", rank: "A" };
+  }
+  if (score >= 60) {
+    return { position: "上位 約15.9%", rank: "B+" };
+  }
+  if (score >= 55) {
+    return { position: "上位 約30.9%", rank: "B" };
+  }
+  if (score >= 50) {
+    return { position: "上位50%", rank: "C" };
+  }
+  if (score >= 45) {
+    return { position: "下位 約30.9%", rank: "D" };
+  }
+  if (score >= 40) {
+    return { position: "下位 約15.9%", rank: "E" };
+  }
+  return { position: "下位 約2.3%", rank: "F" };
+}
+
 function smoothPath(coords: { x: number; y: number }[]): string {
   if (coords.length < 3) {
     return coords
@@ -647,6 +681,8 @@ export function Result({ initialResult }: ResultProps) {
     return null;
   }
 
+  const scoreProfile = getScoreProfile(kyunScore);
+
   const currentResult: ShareableResult = {
     kyunScore,
     evaluation,
@@ -726,7 +762,7 @@ export function Result({ initialResult }: ResultProps) {
       </div>
 
       <main className="relative z-10 flex flex-col items-center pb-[61px] pt-[42px]">
-        <section className="flex h-[560px] w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white">
+        <section className="flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white pb-6">
           <h1 className="flex h-[60px] w-full shrink-0 items-center justify-center rounded-lg bg-[#D4537E] text-[32px] leading-none font-bold text-white">
             分析結果
           </h1>
@@ -735,8 +771,23 @@ export function Result({ initialResult }: ResultProps) {
             きゅん度
           </h2>
 
-          <div className="mt-[10px] flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center justify-center rounded-[20px] border border-[#F5B6D2] bg-[#FFF5FA] text-[44px] leading-none font-bold text-[#D4537E]">
-            {kyunScore}%
+          <div className="mt-[10px] flex h-[180px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 flex-col items-center justify-center rounded-[20px] border border-[#F5B6D2] bg-[#FFF5FA] text-center text-[#D4537E]">
+            <p className="text-[44px] leading-none font-bold">{kyunScore}%</p>
+            <div className="mt-3 flex items-end gap-3">
+              <div>
+                <p className="text-[11px] text-[#8A6873]">ランク</p>
+                <p className="mt-1 text-[26px] leading-none font-bold">
+                  {scoreProfile.rank}
+                </p>
+              </div>
+              <div className="h-9 w-px bg-[#F5B6D2]" aria-hidden="true" />
+              <div>
+                <p className="text-[11px] text-[#8A6873]">全体での位置</p>
+                <p className="mt-1 text-[13px] leading-none font-bold">
+                  {scoreProfile.position}
+                </p>
+              </div>
+            </div>
           </div>
 
           <h2 className="mt-6 text-[20px] leading-[29px] font-bold text-[#D4537E]">
