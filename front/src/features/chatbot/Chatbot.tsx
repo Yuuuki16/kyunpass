@@ -167,7 +167,13 @@ export function Chatbot() {
       );
 
       router.push("/result");
-    } catch {
+    } catch (error) {
+      sessionStorage.setItem(
+        "kyunpass:errorMessage",
+        error instanceof Error
+          ? error.message
+          : "分析に失敗しました。もう一度お試しください。",
+      );
       router.push("/");
     }
   };
