@@ -31,7 +31,7 @@ OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 DANGER_THRESHOLD = 50
 MAX_EVIDENCE_MESSAGES = 5
 MAX_SIMILAR_PATTERNS = 3
-MAX_LLM_INPUT_MESSAGES = 1000
+MAX_LLM_INPUT_MESSAGES = 2000
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
