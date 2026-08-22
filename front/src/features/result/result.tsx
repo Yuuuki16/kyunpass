@@ -3,6 +3,11 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
+import type {
+  AnalyzeResult,
+  ShareableResult,
+  TimelinePoint,
+} from "@/features/result/resultData";
 import { Zen_Maru_Gothic } from "next/font/google";
 import { useRouter } from "next/navigation";
 
@@ -11,11 +16,6 @@ const zenMaruGothic = Zen_Maru_Gothic({
   subsets: ["latin"],
   display: "swap",
 });
-
-type TimelinePoint = {
-  date: string;
-  kyun_score: number;
-};
 
 function parseTimeline(raw: string | null): TimelinePoint[] {
   if (!raw) return [];
@@ -33,16 +33,6 @@ function parseTimeline(raw: string | null): TimelinePoint[] {
     return [];
   }
 }
-
-type AnalyzeResult = {
-  kyunScore: number | null;
-  evaluation: string;
-  timeline: TimelinePoint[];
-  kyunMessages: string[];
-  cautionMessages: string[];
-  variables: Record<string, number>;
-  themeEvaluations: Record<string, string>;
-};
 
 const SERVER_SNAPSHOT: AnalyzeResult = {
   kyunScore: null,
@@ -340,8 +330,21 @@ function ThemeEvaluation({
   );
 }
 
-export function Result() {
+type ResultProps = {
+  initialResult?: ShareableResult;
+};
+
+type ShareStatus = "idle" | "saving" | "copied" | "manual" | "error";
+
+export function Result({ initialResult }: ResultProps) {
   const router = useRouter();
+  const storedResult = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
   const {
     kyunScore,
     evaluation,
@@ -350,7 +353,7 @@ export function Result() {
     cautionMessages,
     variables,
     themeEvaluations,
-  } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  } = initialResult ?? storedResult;
 
   useEffect(() => {
     // Re-read the store directly rather than trusting the `kyunScore` render
@@ -358,14 +361,78 @@ export function Result() {
     // placeholder (kyunScore === null) to avoid a hydration mismatch, and
     // this effect can fire against that placeholder before the corrected
     // render lands. Reading live sessionStorage sidesteps that race.
-    if (getSnapshot().kyunScore === null) {
+    if (!initialResult && getSnapshot().kyunScore === null) {
       router.replace("/");
     }
-  }, [kyunScore, router]);
+  }, [initialResult, kyunScore, router]);
 
   if (kyunScore === null) {
     return null;
   }
+
+  const currentResult: ShareableResult = {
+    kyunScore,
+    evaluation,
+    timeline,
+    kyunMessages,
+    cautionMessages,
+    variables,
+    themeEvaluations,
+  };
+
+  const handleShare = async () => {
+    setShareStatus("saving");
+
+    try {
+      let nextShareUrl = shareUrl;
+
+      if (!nextShareUrl) {
+        if (initialResult) {
+          nextShareUrl = window.location.href;
+        } else {
+          const response = await fetch("/api/shared-results", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(currentResult),
+          });
+          const responseBody: unknown = await response.json();
+          const shareId =
+            responseBody && typeof responseBody === "object"
+              ? (responseBody as Record<string, unknown>).shareId
+              : null;
+
+          if (!response.ok || typeof shareId !== "string") {
+            throw new Error("共有リンクを作成できませんでした");
+          }
+
+          nextShareUrl = `${window.location.origin}/result/${shareId}`;
+        }
+
+        setShareUrl(nextShareUrl);
+      }
+
+      try {
+        if (!navigator.clipboard) {
+          throw new Error("Clipboard APIを利用できません");
+        }
+        await navigator.clipboard.writeText(nextShareUrl);
+        setShareStatus("copied");
+      } catch {
+        setShareStatus("manual");
+        window.prompt("共有リンクをコピーしてください", nextShareUrl);
+      }
+    } catch {
+      setShareStatus("error");
+    }
+  };
+
+  const shareButtonLabel = {
+    idle: "共有",
+    saving: "作成中",
+    copied: "コピー済み",
+    manual: "再コピー",
+    error: "再試行",
+  }[shareStatus];
 
   const trend = timeline.length >= 2 ? describeTrend(timeline) : null;
 
@@ -407,11 +474,31 @@ export function Result() {
 
           <button
             type="button"
-            className="mt-[22px] h-12 w-[140px] rounded-lg bg-[#FAE1FA] text-[24px] leading-none font-bold text-[#FF99B4] shadow-[0_4px_4px_rgba(0,0,0,0.25)]"
+            onClick={handleShare}
+            disabled={shareStatus === "saving"}
+            className="mt-[22px] h-12 w-[140px] rounded-lg bg-[#FAE1FA] text-[24px] leading-none font-bold text-[#FF99B4] shadow-[0_4px_4px_rgba(0,0,0,0.25)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            共有
+            {shareButtonLabel}
           </button>
         </section>
+
+        {shareStatus === "copied" && (
+          <p
+            role="status"
+            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#555555] px-4 py-2 text-[14px] text-white shadow-lg"
+          >
+            リンクをコピーしました
+          </p>
+        )}
+
+        {shareStatus === "error" && (
+          <p
+            role="alert"
+            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#555555] px-4 py-2 text-[14px] text-white shadow-lg"
+          >
+            共有リンクを作成できませんでした
+          </p>
+        )}
 
         <ThemeEvaluation variables={variables} evaluations={themeEvaluations} />
 
