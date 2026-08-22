@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile
@@ -26,6 +26,8 @@ UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
 TALK_HISTORY_MAX_LENGTH = 2_000_000
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+DANGER_THRESHOLD = 50
+MAX_EVIDENCE_MESSAGES = 5
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -80,6 +82,8 @@ class AnalyzeResponse(BaseModel):
     separated_messages: list[SeparatedMessage]
     similar_patterns: list[dict[str, object]]
     evaluation: str
+    kyun_messages: list[str] = []
+    caution_messages: list[str] = []
     timeline: list[TimelinePoint] = []
 
 def context_entry(group: str, option: str) -> dict[str, float | str]:
@@ -104,13 +108,28 @@ def fallback_variables(messages: list[SeparatedMessage]) -> dict[str, int]:
     text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
     return {key: min(100, 20 + 20 * sum(text.count(word) for word in words)) for key, words in WORDS.items()}
 
+POSITIVE_VARIABLE_KEYS = ("respect", "interest", "relationship_building")
+DANGER_VARIABLE_KEYS = ("casual_sex_seeking", "self_priority", "relationship_ambiguity")
+
+def fallback_evidence(messages: list[SeparatedMessage]) -> tuple[list[str], list[str]]:
+    other_texts = [m.text for m in messages if m.speaker == "OTHER" and m.kind == "text"]
+
+    def matching_texts(keys: tuple[str, ...]) -> list[str]:
+        words = [word for key in keys for word in WORDS[key]]
+        matches = [text for text in other_texts if any(word in text for word in words)]
+        return list(dict.fromkeys(matches))[:MAX_EVIDENCE_MESSAGES]
+
+    return matching_texts(POSITIVE_VARIABLE_KEYS), matching_texts(DANGER_VARIABLE_KEYS)
+
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
         **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+        "kyun_messages": {"type": "array", "items": {"type": "string"}},
+        "caution_messages": {"type": "array", "items": {"type": "string"}},
         "evaluation": {"type": "string"},
     },
-    "required": [*VARIABLE_LABELS, "evaluation"],
+    "required": [*VARIABLE_LABELS, "kyun_messages", "caution_messages", "evaluation"],
     "additionalProperties": False,
 }
 
@@ -122,7 +141,13 @@ def build_llm_prompt(
     other_name: str,
 ) -> str:
     transcript = "\n".join(f"[{other_name if m.speaker == 'OTHER' else user_name if m.speaker == 'USER' else m.speaker}] {m.text}" for m in messages)
-    return f"""Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Return JSON only: integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity; plus a short Japanese evaluation.
+    return f"""You are the analysis engine behind kyunpass. Its mission is to help {user_name} find out whether {other_name}'s feelings are pure (純粋) rather than calculated (打算的), so {user_name} can resolve romantic anxiety early and avoid trouble before it happens. Do not make {user_name} suspicious of or aggressive toward {other_name} for its own sake — the goal is protecting {user_name}, not "winning" the relationship or scoring technique.
+
+Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Return JSON only:
+- integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity
+- kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes of {other_name}'s own messages that are the clearest evidence of respect/interest/relationship_building (empty array if none)
+- caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes of {other_name}'s own messages that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
+- evaluation: a short Japanese evaluation. If casual_sex_seeking, self_priority, or relationship_ambiguity is {DANGER_THRESHOLD} or higher, evaluation MUST clearly and gently warn {user_name} and encourage them to pause and be cautious (引き止める) instead of describing the situation neutrally — protect {user_name}, do not attack {other_name}. Otherwise, describe the positive signs found.
 Relationship context:
 - どのくらいの期間やり取りしているか: {labels["period"]}
 - 出会ったきっかけ: {labels["meeting"]}
@@ -132,13 +157,19 @@ Conversation:
 Retrieved similar patterns (reference only):
 {json.dumps(patterns, ensure_ascii=False)}"""
 
+class LLMResult(NamedTuple):
+    variables: dict[str, int]
+    evaluation: str
+    kyun_messages: list[str]
+    caution_messages: list[str]
+
 def infer_with_llm(
     messages: list[SeparatedMessage],
     patterns: list[dict[str, object]],
     labels: dict[str, str],
     user_name: str,
     other_name: str,
-) -> tuple[dict[str, int], str] | None:
+) -> LLMResult | None:
     if not os.getenv("OPENAI_API_KEY"):
         return None
     try:
@@ -166,7 +197,9 @@ def infer_with_llm(
         evaluation = str(data["evaluation"]).strip()
         if not evaluation:
             raise ValueError("LLM returned an empty evaluation.")
-        return variables, evaluation
+        kyun_messages = [str(text) for text in data.get("kyun_messages", [])]
+        caution_messages = [str(text) for text in data.get("caution_messages", [])]
+        return LLMResult(variables, evaluation, kyun_messages, caution_messages)
     except Exception:
         logger.exception("LLM analysis failed; falling back to keyword-based scoring.")
         return None
@@ -191,7 +224,10 @@ def build_timeline(messages: list[SeparatedMessage], g: float) -> list[TimelineP
     return points
 
 def fallback_evaluation(score: float, values: dict[str, int]) -> str:
-    positive = max(("respect", "interest", "relationship_building"), key=values.get)
+    riskiest = max(DANGER_VARIABLE_KEYS, key=values.get)
+    if values[riskiest] >= DANGER_THRESHOLD:
+        return f"『{VARIABLE_LABELS[riskiest]}』という気になるサインが見られます。無理に関係を進めず、一度立ち止まって様子を見ることをおすすめします。"
+    positive = max(POSITIVE_VARIABLE_KEYS, key=values.get)
     return f"キュン度は{'高め' if score >= 70 else 'これから伸びる' if score >= 45 else '慎重に見極める'}段階です。特に『{VARIABLE_LABELS[positive]}』傾向が見られます。"
 
 @app.get("/health")
@@ -231,13 +267,17 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         "relationship": str(relationship_entry["label"]),
     }
     llm_result = infer_with_llm(messages, patterns, labels, request.user_name, request.other_name)
-    values, llm_evaluation = llm_result or (fallback_variables(messages), "")
+    if llm_result:
+        values, llm_evaluation, kyun_messages, caution_messages = llm_result
+    else:
+        values, llm_evaluation = fallback_variables(messages), ""
+        kyun_messages, caution_messages = fallback_evidence(messages)
     g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
     f_score = calculate_f(values)
     k = int(f_score * g)
     timeline = build_timeline(messages, g)
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
-  similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values), timeline=timeline)
+  similar_patterns=patterns, evaluation=llm_evaluation or fallback_evaluation(k, values), kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline)
 
 @app.post("/investigate")
 async def investigate(file: UploadFile) -> dict[str, object]:

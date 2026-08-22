@@ -38,13 +38,29 @@ type AnalyzeResult = {
   kyunScore: number | null;
   evaluation: string;
   timeline: TimelinePoint[];
+  kyunMessages: string[];
+  cautionMessages: string[];
 };
 
 const SERVER_SNAPSHOT: AnalyzeResult = {
   kyunScore: null,
   evaluation: "",
   timeline: [],
+  kyunMessages: [],
+  cautionMessages: [],
 };
+
+function parseMessages(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 let cachedRaw: string | null = null;
 let cachedResult: AnalyzeResult = SERVER_SNAPSHOT;
@@ -54,6 +70,8 @@ function getSnapshot(): AnalyzeResult {
     sessionStorage.getItem("kyunpass:kyunScore"),
     sessionStorage.getItem("kyunpass:evaluation"),
     sessionStorage.getItem("kyunpass:timeline"),
+    sessionStorage.getItem("kyunpass:kyunMessages"),
+    sessionStorage.getItem("kyunpass:cautionMessages"),
   ].join(" ");
 
   if (raw !== cachedRaw) {
@@ -64,6 +82,12 @@ function getSnapshot(): AnalyzeResult {
       kyunScore: Number.isFinite(parsedScore) ? parsedScore : null,
       evaluation: sessionStorage.getItem("kyunpass:evaluation") ?? "",
       timeline: parseTimeline(sessionStorage.getItem("kyunpass:timeline")),
+      kyunMessages: parseMessages(
+        sessionStorage.getItem("kyunpass:kyunMessages"),
+      ),
+      cautionMessages: parseMessages(
+        sessionStorage.getItem("kyunpass:cautionMessages"),
+      ),
     };
   }
 
@@ -218,11 +242,13 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
 
 export function Result() {
   const router = useRouter();
-  const { kyunScore, evaluation, timeline } = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
-  );
+  const {
+    kyunScore,
+    evaluation,
+    timeline,
+    kyunMessages,
+    cautionMessages,
+  } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     // Re-read the store directly rather than trusting the `kyunScore` render
@@ -304,6 +330,45 @@ export function Result() {
                 <span>
                   {formatShortDate(timeline[timeline.length - 1].date)}
                 </span>
+              </div>
+            )}
+          </section>
+        )}
+
+        {(kyunMessages.length > 0 || cautionMessages.length > 0) && (
+          <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col gap-4 rounded-lg bg-white p-4">
+            {kyunMessages.length > 0 && (
+              <div>
+                <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+                  きゅんした発言
+                </h2>
+                <ul className="mt-2 flex flex-col gap-1">
+                  {kyunMessages.map((message) => (
+                    <li
+                      key={message}
+                      className="rounded-[12px] bg-[#FFF5F8] px-3 py-2 text-[12px] leading-[17px] text-[#D4537E]"
+                    >
+                      「{message}」
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {cautionMessages.length > 0 && (
+              <div>
+                <h2 className="text-[16px] leading-[23px] font-bold text-[#E08A3C]">
+                  気になる発言
+                </h2>
+                <ul className="mt-2 flex flex-col gap-1">
+                  {cautionMessages.map((message) => (
+                    <li
+                      key={message}
+                      className="rounded-[12px] bg-[#FFF3E6] px-3 py-2 text-[12px] leading-[17px] text-[#B5651D]"
+                    >
+                      「{message}」
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </section>

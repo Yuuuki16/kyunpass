@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from app.main import SeparatedMessage, app, build_llm_prompt
+from app.main import SeparatedMessage, app, build_llm_prompt, fallback_evaluation, fallback_evidence
 
 client = TestClient(app)
 
@@ -34,6 +34,8 @@ def test_analyze_separates_speakers_and_calculates_score() -> None:
     assert data["kyun_score"] == int(
       data["function_score"] * data["context_score"]
   )
+    assert "ありがとう！また会おう" in data["kyun_messages"]
+    assert data["caution_messages"] == []
 
 
 def test_analyze_rejects_talk_history_without_other_speaker() -> None:
@@ -217,6 +219,39 @@ def test_build_llm_prompt_includes_names_and_context_labels() -> None:
     assert "ほとんど面識がない" in prompt
 
 
+def test_build_llm_prompt_instructs_warning_for_danger_signals() -> None:
+    prompt = build_llm_prompt([], [], {"period": "", "meeting": "", "relationship": ""}, user_name="太郎", other_name="花子")
+
+    assert "kyun_messages" in prompt
+    assert "caution_messages" in prompt
+    assert "引き止める" in prompt
+    assert "純粋" in prompt
+
+
+def test_fallback_evidence_extracts_matching_other_messages() -> None:
+    messages = [
+        SeparatedMessage(speaker="USER", text="今度会える？"),
+        SeparatedMessage(speaker="OTHER", text="ありがとう！また会おうね"),
+        SeparatedMessage(speaker="OTHER", text="今すぐホテル行こうよ"),
+        SeparatedMessage(speaker="OTHER", text="今日は天気がいいね"),
+    ]
+
+    kyun_messages, caution_messages = fallback_evidence(messages)
+
+    assert "ありがとう！また会おうね" in kyun_messages
+    assert "今すぐホテル行こうよ" in caution_messages
+    assert "今日は天気がいいね" not in kyun_messages
+    assert "今日は天気がいいね" not in caution_messages
+
+
+def test_fallback_evaluation_warns_when_danger_signal_is_high() -> None:
+    values = {"respect": 20, "interest": 20, "relationship_building": 20, "casual_sex_seeking": 80, "self_priority": 10, "relationship_ambiguity": 10}
+
+    evaluation = fallback_evaluation(30, values)
+
+    assert "立ち止まって" in evaluation
+
+
 class _FakeResponse:
     def __init__(self, output_text: str) -> None:
         self.output_text = output_text
@@ -248,6 +283,8 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
             "casual_sex_seeking": 0,
             "self_priority": 0,
             "relationship_ambiguity": 0,
+            "kyun_messages": ["ありがとう！また会おう"],
+            "caution_messages": [],
             "evaluation": "LLMによる評価テキスト",
         }
     )
@@ -267,6 +304,8 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
     data = response.json()
     assert data["variables"]["respect"] == 90
     assert data["evaluation"] == "LLMによる評価テキスト"
+    assert data["kyun_messages"] == ["ありがとう！また会おう"]
+    assert data["caution_messages"] == []
 
     prompt = captured["input"]
     assert "花子" in prompt

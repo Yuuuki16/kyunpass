@@ -207,6 +207,18 @@ export function Chatbot() {
         "kyunpass:timeline",
         Array.isArray(data.timeline) ? JSON.stringify(data.timeline) : "[]",
       );
+      sessionStorage.setItem(
+        "kyunpass:kyunMessages",
+        Array.isArray(data.kyun_messages)
+          ? JSON.stringify(data.kyun_messages)
+          : "[]",
+      );
+      sessionStorage.setItem(
+        "kyunpass:cautionMessages",
+        Array.isArray(data.caution_messages)
+          ? JSON.stringify(data.caution_messages)
+          : "[]",
+      );
 
       router.replace("/result");
     } catch (error) {
