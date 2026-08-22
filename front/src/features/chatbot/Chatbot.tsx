@@ -45,8 +45,10 @@ type Answer = {
 
 export function Chatbot() {
   const [answers, setAnswers] = useState<Answer[]>([]);
+  const [isConfirmed, setIsConfirmed] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const firstOptionRef = useRef<HTMLButtonElement>(null);
+  const shouldFocusFirstOptionRef = useRef(false);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({
@@ -54,10 +56,15 @@ export function Chatbot() {
       block: "nearest",
     });
 
-    if (answers.length > 0 && answers.length < questions.length) {
+    if (
+      shouldFocusFirstOptionRef.current &&
+      !isConfirmed &&
+      answers.length < questions.length
+    ) {
       firstOptionRef.current?.focus();
+      shouldFocusFirstOptionRef.current = false;
     }
-  }, [answers.length]);
+  }, [answers.length, isConfirmed]);
 
   const handleAnswer = (questionId: QuestionId, label: string) => {
     setAnswers((currentAnswers) => {
@@ -67,8 +74,32 @@ export function Chatbot() {
         return currentAnswers;
       }
 
+      shouldFocusFirstOptionRef.current =
+        currentAnswers.length + 1 < questions.length;
+
       return [...currentAnswers, { questionId, label }];
     });
+  };
+
+  const handleBack = (expectedAnswerCount: number) => {
+    setIsConfirmed(false);
+    setAnswers((currentAnswers) => {
+      if (
+        currentAnswers.length === 0 ||
+        currentAnswers.length !== expectedAnswerCount
+      ) {
+        return currentAnswers;
+      }
+
+      shouldFocusFirstOptionRef.current = true;
+      return currentAnswers.slice(0, -1);
+    });
+  };
+
+  const handleConfirm = () => {
+    if (answers.length === questions.length) {
+      setIsConfirmed(true);
+    }
   };
 
   const visibleQuestions = questions.slice(
@@ -99,8 +130,12 @@ export function Chatbot() {
 
       <main className="relative z-10 flex justify-center pt-10">
         <section className="h-[500px] w-[calc(100%_-_52px)] max-w-[300px] rounded-lg bg-white">
-          <h1 className="flex h-[60px] items-center justify-center rounded-lg bg-[#D4537E] text-[32px] leading-none font-bold text-white">
+          <h1 className="relative flex h-[60px] items-center justify-center rounded-lg bg-[#D4537E] text-[32px] leading-none font-bold text-white">
             背景調査
+            <span className="absolute right-3 top-3 text-[20px] font-normal">
+              {Math.min(answers.length + 1, questions.length)}/
+              {questions.length}
+            </span>
           </h1>
 
           <div
@@ -115,9 +150,20 @@ export function Chatbot() {
 
                 return (
                   <div key={question.id}>
-                    <p className="mr-auto w-fit max-w-full rounded-lg bg-[#FBCFE8] px-3 py-2 text-[16px] leading-6 text-white">
-                      {question.message}
-                    </p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="w-fit min-w-0 rounded-lg bg-[#FBCFE8] px-3 py-2 text-[16px] leading-6 text-white">
+                        {question.message}
+                      </p>
+                      {isCurrentQuestion && index > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleBack(index)}
+                          className="mt-1 shrink-0 rounded-lg border border-[#FF99B4] bg-white px-4 py-2 text-[10px] leading-4 text-[#D4537E]"
+                        >
+                          前の質問に戻る
+                        </button>
+                      )}
+                    </div>
 
                     {answer ? (
                       <p className="mt-3 ml-auto w-fit max-w-full rounded-lg bg-[#B5B5B5] px-3 py-2 text-[16px] leading-6 text-white">
@@ -148,6 +194,34 @@ export function Chatbot() {
                   </div>
                 );
               })}
+              {answers.length === questions.length &&
+                (isConfirmed ? (
+                  <p className="text-center text-[14px] leading-5 text-[#D4537E]">
+                    回答を確定しました
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-center text-[14px] leading-5 text-[#D4537E]">
+                      回答結果を確定しますか？
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleConfirm}
+                        className="min-h-9 flex-1 rounded-lg bg-[#D4537E] px-3 py-1.5 text-[14px] leading-5 text-white"
+                      >
+                        確定
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleBack(questions.length)}
+                        className="min-h-9 flex-1 rounded-lg border border-[#FF99B4] bg-white px-2 py-1.5 text-[12px] leading-5 text-[#D4537E]"
+                      >
+                        前の質問に戻る
+                      </button>
+                    </div>
+                  </div>
+                ))}
               <div ref={chatEndRef} />
             </div>
           </div>
