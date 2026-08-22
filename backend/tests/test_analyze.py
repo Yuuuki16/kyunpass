@@ -204,6 +204,133 @@ def test_analyze_timeline_omits_dates_with_no_other_text_message() -> None:
     assert [point["date"] for point in timeline] == ["2025-04-19"]
 
 
+def test_build_llm_prompt_lists_qualifying_timeline_dates() -> None:
+    messages = [
+        SeparatedMessage(speaker="OTHER", text="ありがとう", date="2025-04-18"),
+        SeparatedMessage(speaker="USER", text="今度会える？", date="2025-04-19"),
+    ]
+
+    prompt = build_llm_prompt(messages, [], {"period": "", "meeting": "", "relationship": ""}, user_name="太郎", other_name="花子")
+
+    instruction_section = prompt.split("Conversation:")[0]
+    assert "2025-04-18" in instruction_section
+    assert "2025-04-19" not in instruction_section
+    assert "[2025-04-18][花子] ありがとう" in prompt
+
+
+def test_build_llm_prompt_timeline_empty_when_no_dates() -> None:
+    prompt = build_llm_prompt(
+        [SeparatedMessage(speaker="OTHER", text="ありがとう")],
+        [],
+        {"period": "", "meeting": "", "relationship": ""},
+        user_name="太郎",
+        other_name="花子",
+    )
+
+    assert "return an empty array" in prompt
+
+
+def test_analyze_uses_llm_timeline_when_available(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    talk_history = (
+        "[LINE] 相手とのトーク履歴\n"
+        "保存日時：2026/08/21 11:59\n"
+        "\n"
+        "2025/04/18(金)\n"
+        "12:08\t自分\t今度会える？\n"
+        "12:09\t相手\tありがとう！また会おう\n"
+        "2025/04/19(土)\n"
+        "09:00\t相手\t無理しないでね\n"
+    )
+    llm_output = json.dumps(
+        {
+            "respect": 50,
+            "interest": 50,
+            "relationship_building": 50,
+            "casual_sex_seeking": 0,
+            "self_priority": 0,
+            "relationship_ambiguity": 0,
+            "kyun_messages": [],
+            "caution_messages": [],
+            "evaluation": "LLMによる評価テキスト",
+            "timeline": [
+                {"date": "2025-04-18", "respect": 90, "interest": 85, "relationship_building": 80, "casual_sex_seeking": 0, "self_priority": 0, "relationship_ambiguity": 0},
+                {"date": "2025-04-19", "respect": 10, "interest": 5, "relationship_building": 5, "casual_sex_seeking": 60, "self_priority": 40, "relationship_ambiguity": 30},
+            ],
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": talk_history,
+        },
+    )
+
+    assert response.status_code == 200
+    timeline = response.json()["timeline"]
+    assert [point["date"] for point in timeline] == ["2025-04-18", "2025-04-19"]
+    assert timeline[0]["variables"]["respect"] == 90
+    assert timeline[1]["variables"]["casual_sex_seeking"] == 60
+    assert timeline[0]["kyun_score"] > timeline[1]["kyun_score"]
+
+    prompt = captured["input"]
+    assert '"2025-04-18"' in prompt
+    assert '"2025-04-19"' in prompt
+
+
+def test_analyze_falls_back_to_keyword_timeline_for_dates_llm_omits(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    talk_history = (
+        "[LINE] 相手とのトーク履歴\n"
+        "保存日時：2026/08/21 11:59\n"
+        "\n"
+        "2025/04/18(金)\n"
+        "12:08\t自分\t今度会える？\n"
+        "12:09\t相手\tありがとう！また会おう\n"
+        "2025/04/19(土)\n"
+        "09:00\t相手\t無理しないでね\n"
+    )
+    llm_output = json.dumps(
+        {
+            "respect": 50,
+            "interest": 50,
+            "relationship_building": 50,
+            "casual_sex_seeking": 0,
+            "self_priority": 0,
+            "relationship_ambiguity": 0,
+            "kyun_messages": [],
+            "caution_messages": [],
+            "evaluation": "LLMによる評価テキスト",
+            "timeline": [
+                {"date": "2025-04-18", "respect": 90, "interest": 85, "relationship_building": 80, "casual_sex_seeking": 0, "self_priority": 0, "relationship_ambiguity": 0},
+            ],
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": talk_history,
+        },
+    )
+
+    assert response.status_code == 200
+    timeline = response.json()["timeline"]
+    assert timeline[0]["variables"]["respect"] == 90
+    assert timeline[1]["variables"] == {"respect": 40, "interest": 20, "relationship_building": 20, "casual_sex_seeking": 20, "self_priority": 20, "relationship_ambiguity": 20}
+
+
 def test_analyze_rejects_when_user_name_never_appears() -> None:
     response = client.post(
         "/analyze",
