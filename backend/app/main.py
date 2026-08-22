@@ -178,6 +178,16 @@ def verify_other_quotes(messages: list[SeparatedMessage], quotes: list[str]) -> 
     other_texts = [m.text for m in messages if m.speaker == "OTHER" and m.kind == "text"]
     return [quote for quote in quotes if any(quote in text for text in other_texts)]
 
+def bucket_messages_by_date(messages: list[SeparatedMessage]) -> dict[str, list[SeparatedMessage]]:
+    buckets: dict[str, list[SeparatedMessage]] = {}
+    for m in messages:
+        if m.date is not None:
+            buckets.setdefault(m.date, []).append(m)
+    return buckets
+
+def qualifying_dates(buckets: dict[str, list[SeparatedMessage]]) -> list[str]:
+    return [date for date in sorted(buckets) if any(m.speaker == "OTHER" and m.kind == "text" for m in buckets[date])]
+
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -268,15 +278,10 @@ def calculate_f(values: dict[str, int]) -> int:
     return max(0, min(100, (x + 900) // 18))
 
 def build_timeline(messages: list[SeparatedMessage], g: float) -> list[TimelinePoint]:
-    buckets: dict[str, list[SeparatedMessage]] = {}
-    for m in messages:
-        if m.date is not None:
-            buckets.setdefault(m.date, []).append(m)
+    buckets = bucket_messages_by_date(messages)
     points = []
-    for date in sorted(buckets):
+    for date in qualifying_dates(buckets):
         bucket = buckets[date]
-        if not any(m.speaker == "OTHER" and m.kind == "text" for m in bucket):
-            continue
         values = fallback_variables(bucket)
         f_score = calculate_f(values)
         points.append(TimelinePoint(date=date, function_score=f_score, kyun_score=int(f_score * g), variables=values, message_count=len(bucket)))
