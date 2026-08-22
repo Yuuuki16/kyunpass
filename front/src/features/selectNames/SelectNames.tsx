@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
@@ -24,7 +31,7 @@ const EMPTY_INVESTIGATION_RESULT: InvestigationResult = {
   suggestedOtherName: "",
 };
 
-function readInvestigationResult() {
+function readInvestigationResult(): InvestigationResult {
   const storedCandidates = sessionStorage.getItem("kyunpass:candidateSpeakers");
   let candidates: string[] = [];
   try {
@@ -52,22 +59,48 @@ function readInvestigationResult() {
   };
 }
 
+function subscribeToInvestigationResult() {
+  return () => {};
+}
+
+function getServerInvestigationResult(): InvestigationResult {
+  return EMPTY_INVESTIGATION_RESULT;
+}
+
 export function SelectNames() {
   const router = useRouter();
-  const [investigationResult, setInvestigationResult] =
-    useState<InvestigationResult>(EMPTY_INVESTIGATION_RESULT);
-  const [hasLoadedInvestigation, setHasLoadedInvestigation] = useState(false);
-  const [userName, setUserName] = useState("");
-  const [otherName, setOtherName] = useState("");
-  const { candidates } = investigationResult;
 
-  useEffect(() => {
-    const result = readInvestigationResult();
-    setInvestigationResult(result);
-    setUserName(result.suggestedUserName);
-    setOtherName(result.suggestedOtherName);
-    setHasLoadedInvestigation(true);
+  // sessionStorage doesn't exist on the server, so the server (and the
+  // client's first hydration pass) must render EMPTY_INVESTIGATION_RESULT.
+  // useSyncExternalStore swaps in the real, client-only value right after
+  // hydration without a manual effect+flag and without a mismatch.
+  const cachedResultRef = useRef<InvestigationResult | null>(null);
+  const getInvestigationResult = useCallback(() => {
+    if (cachedResultRef.current === null) {
+      cachedResultRef.current = readInvestigationResult();
+    }
+    return cachedResultRef.current;
   }, []);
+  const investigationResult = useSyncExternalStore(
+    subscribeToInvestigationResult,
+    getInvestigationResult,
+    getServerInvestigationResult,
+  );
+  const hasLoadedInvestigation =
+    investigationResult !== EMPTY_INVESTIGATION_RESULT;
+  const { candidates, suggestedUserName, suggestedOtherName } =
+    investigationResult;
+
+  // Only track the user's explicit choice; while it's unset, fall back to
+  // the suggested name derived above instead of syncing it into state.
+  const [userNameOverride, setUserNameOverride] = useState<string | null>(
+    null,
+  );
+  const [otherNameOverride, setOtherNameOverride] = useState<string | null>(
+    null,
+  );
+  const userName = userNameOverride ?? suggestedUserName;
+  const otherName = otherNameOverride ?? suggestedOtherName;
 
   useEffect(() => {
     if (hasLoadedInvestigation && candidates.length === 0) {
@@ -76,11 +109,11 @@ export function SelectNames() {
   }, [candidates, hasLoadedInvestigation, router]);
 
   const handleUserNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setUserName(event.target.value);
+    setUserNameOverride(event.target.value);
   };
 
   const handleOtherNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setOtherName(event.target.value);
+    setOtherNameOverride(event.target.value);
   };
 
   const canSubmit =
