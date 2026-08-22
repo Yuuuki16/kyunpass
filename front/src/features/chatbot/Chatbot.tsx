@@ -166,7 +166,7 @@ export function Chatbot() {
         typeof data.evaluation === "string" ? data.evaluation : "",
       );
 
-      router.push("/result");
+      router.replace("/result");
     } catch (error) {
       sessionStorage.setItem(
         "kyunpass:errorMessage",
@@ -174,7 +174,7 @@ export function Chatbot() {
           ? error.message
           : "分析に失敗しました。もう一度お試しください。",
       );
-      router.push("/");
+      router.replace("/");
     }
   };
 
