@@ -268,7 +268,10 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     ):
         raise HTTPException(
             status_code=422,
-            detail="発言者名がトーク履歴内の表記と一致しない行が多数あります。user_name/other_nameを確認してください。",
+            detail=(
+                "発言者を十分に判別できませんでした。LINEアプリの「トーク履歴を送信」で"
+                "出力したtxtファイルを使い、名前選択画面に表示された候補をそのまま選んでください。"
+            ),
         )
     patterns = load_patterns()
     period_entry = context_entry("A", request.context.period)

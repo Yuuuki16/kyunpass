@@ -48,6 +48,20 @@ def test_investigate_suggests_nothing_without_a_chat_title() -> None:
     assert data["suggested_user_name"] is None
 
 
+def test_investigate_extracts_names_from_timestamp_prefixed_colon_export() -> None:
+    timestamp_prefixed_sample = (
+        "[2025/04/18 12:08] 花子: お疲れ様です！\n"
+        "2025/04/18 14:13 太郎：振り込み完了しました\n"
+    )
+    response = client.post(
+        "/investigate",
+        files={"file": ("conversation.txt", timestamp_prefixed_sample.encode("utf-8"), "text/plain")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["candidate_speakers"] == ["太郎", "花子"]
+
+
 def test_investigate_suggests_nothing_for_group_chats() -> None:
     group_sample = (
         "[LINE] 花子とのトーク履歴\n"

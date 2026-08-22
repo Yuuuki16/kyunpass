@@ -99,6 +99,55 @@ def test_analyze_accepts_real_line_export_format() -> None:
     assert speakers == ["USER", "OTHER"]
 
 
+def test_analyze_accepts_timestamp_prefixed_line_export_format() -> None:
+    talk_history = (
+        "[2025/04/18 12:08] 自分: 今度会える？\n"
+        "2025/04/18 12:09 相手: ありがとう！また会おう\n"
+        "12:10 相手: 無理しないでね\n"
+    )
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": talk_history,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [message["speaker"] for message in response.json()["separated_messages"]] == [
+        "USER",
+        "OTHER",
+        "OTHER",
+    ]
+
+
+def test_analyze_infers_speakers_from_one_to_one_chat_title() -> None:
+    talk_history = (
+        "[LINE] 花子とのトーク履歴\n"
+        "保存日時：2026/08/22 12:00\n\n"
+        "2025/04/18(金)\n"
+        "12:08\t花子\tありがとう！また会おう\n"
+        "12:09\t太郎\t今度会える？\n"
+    )
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": talk_history,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [message["speaker"] for message in response.json()["separated_messages"]] == [
+        "OTHER",
+        "USER",
+    ]
+
+
 def test_analyze_returns_timeline_bucketed_by_date() -> None:
     talk_history = (
         "[LINE] 相手とのトーク履歴\n"
