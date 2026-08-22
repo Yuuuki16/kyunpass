@@ -188,10 +188,12 @@ def bucket_messages_by_date(messages: list[SeparatedMessage]) -> dict[str, list[
 def qualifying_dates(buckets: dict[str, list[SeparatedMessage]]) -> list[str]:
     return [date for date in sorted(buckets) if any(m.speaker == "OTHER" and m.kind == "text" for m in buckets[date])]
 
+VARIABLE_SCORE_SCHEMA: dict[str, object] = {"type": "number", "minimum": 0, "maximum": 100}
+
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
-        **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+        **{key: VARIABLE_SCORE_SCHEMA for key in VARIABLE_LABELS},
         "kyun_messages": {"type": "array", "items": {"type": "string"}},
         "caution_messages": {"type": "array", "items": {"type": "string"}},
         "evaluation": {"type": "string"},
@@ -201,7 +203,7 @@ LLM_RESPONSE_SCHEMA: dict[str, object] = {
                 "type": "object",
                 "properties": {
                     "date": {"type": "string"},
-                    **{key: {"type": "integer", "minimum": 0, "maximum": 100} for key in VARIABLE_LABELS},
+                    **{key: VARIABLE_SCORE_SCHEMA for key in VARIABLE_LABELS},
                 },
                 "required": ["date", *VARIABLE_LABELS],
                 "additionalProperties": False,
@@ -235,7 +237,7 @@ def build_llm_prompt(
     return f"""You are the analysis engine behind kyunpass. Its mission is to help {user_name} find out whether {other_name}'s feelings are pure (純粋) rather than calculated (打算的), so {user_name} can resolve romantic anxiety early and avoid trouble before it happens. Do not make {user_name} suspicious of or aggressive toward {other_name} for its own sake — the goal is protecting {user_name}, not "winning" the relationship or scoring technique.
 
 Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Base the six scores strictly on the content of {other_name}'s own messages — {user_name}'s messages are provided only as context for what {other_name} was responding to, and must never themselves be scored or quoted. Every score and every quote must be traceable to a specific message actually sent by {other_name}. Return JSON only:
-- integer 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity. Do not default to round numbers (multiples of 5 or 10) — weigh the actual evidence and use precise values (e.g. 63, 47, 82) that reflect fine-grained differences in strength of evidence.
+- 0-100 values for respect, interest, relationship_building, casual_sex_seeking, self_priority, relationship_ambiguity, given as a number with exactly one decimal place (e.g. 62.4, 47.1, 83.7). Never output a whole number and never a value ending in .0 or .5 — weigh the actual evidence so the decimal itself reflects fine-grained differences in strength of evidence, not a rounded guess.
 - kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of respect/interest/relationship_building (empty array if none)
 - caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
 {timeline_instruction}
@@ -288,7 +290,7 @@ def infer_with_llm(
             .output_text
         )
         data = json.loads(output)
-        variables = {key: max(0, min(100, int(data[key]))) for key in VARIABLE_LABELS}
+        variables = {key: max(0, min(100, round(float(data[key])))) for key in VARIABLE_LABELS}
         evaluation = str(data["evaluation"]).strip()
         if not evaluation:
             raise ValueError("LLM returned an empty evaluation.")
@@ -299,7 +301,7 @@ def infer_with_llm(
             if not isinstance(entry, dict) or "date" not in entry:
                 continue
             try:
-                timeline[str(entry["date"])] = {key: max(0, min(100, int(entry[key]))) for key in VARIABLE_LABELS}
+                timeline[str(entry["date"])] = {key: max(0, min(100, round(float(entry[key])))) for key in VARIABLE_LABELS}
             except (KeyError, TypeError, ValueError):
                 continue
         return LLMResult(variables, evaluation, kyun_messages, caution_messages, timeline)

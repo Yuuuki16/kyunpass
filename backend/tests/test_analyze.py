@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import (
+    LLM_RESPONSE_SCHEMA,
     VARIABLE_LABELS,
     SeparatedMessage,
     app,
@@ -414,6 +415,22 @@ def test_build_llm_prompt_instructs_warning_for_danger_signals() -> None:
     assert "純粋" in prompt
 
 
+def test_llm_response_schema_allows_decimal_variable_scores() -> None:
+    for key in VARIABLE_LABELS:
+        assert LLM_RESPONSE_SCHEMA["properties"][key]["type"] == "number"
+
+    timeline_item_properties = LLM_RESPONSE_SCHEMA["properties"]["timeline"]["items"]["properties"]
+    for key in VARIABLE_LABELS:
+        assert timeline_item_properties[key]["type"] == "number"
+
+
+def test_build_llm_prompt_instructs_decimal_precision_without_rounding() -> None:
+    prompt = build_llm_prompt([], [], {"period": "", "meeting": "", "relationship": ""}, user_name="太郎", other_name="花子")
+
+    assert "one decimal place" in prompt
+    assert "never a value ending in .0 or .5" in prompt
+
+
 def test_fallback_evidence_extracts_matching_other_messages() -> None:
     messages = [
         SeparatedMessage(speaker="USER", text="今度会える？"),
@@ -567,6 +584,44 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
     assert "1週間未満" in prompt
     assert "友人・知人の紹介" in prompt
     assert captured["text"]["format"]["type"] == "json_schema"
+
+
+def test_analyze_rounds_decimal_llm_scores_instead_of_truncating(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    llm_output = json.dumps(
+        {
+            "respect": 62.7,
+            "interest": 47.4,
+            "relationship_building": 83.6,
+            "casual_sex_seeking": 0.2,
+            "self_priority": 0.4,
+            "relationship_ambiguity": 0.1,
+            "kyun_messages": [],
+            "caution_messages": [],
+            "evaluation": "LLMによる評価テキスト",
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "花子",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n花子: ありがとう！また会おう",
+        },
+    )
+
+    assert response.status_code == 200
+    variables = response.json()["variables"]
+    assert variables["respect"] == 63
+    assert variables["interest"] == 47
+    assert variables["relationship_building"] == 84
+    assert variables["casual_sex_seeking"] == 0
+    assert variables["self_priority"] == 0
+    assert variables["relationship_ambiguity"] == 0
 
 
 def test_analyze_drops_llm_quotes_not_actually_from_other(monkeypatch) -> None:
