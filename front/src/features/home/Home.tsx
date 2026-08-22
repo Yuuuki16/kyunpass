@@ -17,6 +17,9 @@ export function HomeFeature() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<SubmitStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string>(
+    "送信に失敗しました。もう一度お試しください。",
+  );
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     setFile(event.target.files?.[0] ?? null);
@@ -41,12 +44,32 @@ export function HomeFeature() {
         },
       );
 
-      if (!response.ok) throw new Error("送信に失敗しました");
+      const data = await response.json();
 
-      await response.json();
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail === "string" ? data.detail : "送信に失敗しました",
+        );
+      }
+
+      if (typeof data.talk_history === "string") {
+        sessionStorage.setItem("kyunpass:talkHistory", data.talk_history);
+      }
+      if (Array.isArray(data.candidate_speakers)) {
+        sessionStorage.setItem(
+          "kyunpass:candidateSpeakers",
+          JSON.stringify(data.candidate_speakers),
+        );
+      }
+
       setStatus("idle");
       router.push("/chatbot");
-    } catch {
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "送信に失敗しました。もう一度お試しください。",
+      );
       setStatus("error");
       router.push("/");
     }
@@ -121,7 +144,7 @@ export function HomeFeature() {
 
           {status === "error" && (
             <p className="mt-2 text-center text-[12px] leading-[17px] text-red-500">
-              送信に失敗しました。もう一度お試しください。
+              {errorMessage}
             </p>
           )}
         </section>
