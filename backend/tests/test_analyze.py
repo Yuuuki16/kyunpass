@@ -10,6 +10,7 @@ from app.main import (
     fallback_evaluation,
     fallback_evidence,
     mask_vulgar_words,
+    verify_other_quotes,
 )
 
 client = TestClient(app)
@@ -252,6 +253,17 @@ def test_fallback_evidence_extracts_matching_other_messages() -> None:
     assert "今日は天気がいいね" not in caution_messages
 
 
+def test_verify_other_quotes_drops_quotes_not_from_other() -> None:
+    messages = [
+        SeparatedMessage(speaker="USER", text="今度会える？"),
+        SeparatedMessage(speaker="OTHER", text="ありがとう！また会おうね"),
+    ]
+
+    verified = verify_other_quotes(messages, ["ありがとう！また会おうね", "今度会える？", "存在しない発言"])
+
+    assert verified == ["ありがとう！また会おうね"]
+
+
 def test_variable_labels_avoid_vulgar_wording() -> None:
     assert "セックス" not in VARIABLE_LABELS["casual_sex_seeking"]
     assert "エッチ" not in VARIABLE_LABELS["casual_sex_seeking"]
@@ -357,6 +369,40 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
     assert "1週間未満" in prompt
     assert "友人・知人の紹介" in prompt
     assert captured["text"]["format"]["type"] == "json_schema"
+
+
+def test_analyze_drops_llm_quotes_not_actually_from_other(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    llm_output = json.dumps(
+        {
+            "respect": 90,
+            "interest": 80,
+            "relationship_building": 70,
+            "casual_sex_seeking": 0,
+            "self_priority": 0,
+            "relationship_ambiguity": 0,
+            "kyun_messages": ["ありがとう！また会おう", "今度会える？"],
+            "caution_messages": ["でっちあげの発言"],
+            "evaluation": "LLMによる評価テキスト",
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "花子",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n花子: ありがとう！また会おう",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["kyun_messages"] == ["ありがとう！また会おう"]
+    assert data["caution_messages"] == []
 
 
 def test_analyze_falls_back_when_llm_raises(monkeypatch) -> None:
