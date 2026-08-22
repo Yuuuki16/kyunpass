@@ -82,7 +82,8 @@ print(
 # -----------------------------
 for pattern, embedding_data in zip(
     valid_patterns,
-    embedding_response.data
+    embedding_response.data,
+    strict=True,
 ):
     vector = embedding_data.embedding
 

@@ -33,6 +33,7 @@ LEGACY_VARIABLE_SCALE = 20
 MAX_EVIDENCE_MESSAGES = 5
 RAG_MATCH_COUNT = 5
 EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_BATCH_SIZE = 100
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -195,11 +196,16 @@ def retrieve_patterns_for_chunks(chunks: list[RagChunk]) -> list[list[dict[str, 
         from openai import OpenAI
         from supabase import create_client
 
-        embedding_response = OpenAI().embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=[chunk.text for chunk in chunks],
-        )
-        embeddings = [item.embedding for item in embedding_response.data]
+        openai_client = OpenAI()
+        chunk_texts = [chunk.text for chunk in chunks]
+        embeddings: list[list[float]] = []
+        for batch_start in range(0, len(chunk_texts), EMBEDDING_BATCH_SIZE):
+            batch = chunk_texts[batch_start : batch_start + EMBEDDING_BATCH_SIZE]
+            embedding_response = openai_client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=batch,
+            )
+            embeddings.extend(item.embedding for item in embedding_response.data)
         if len(embeddings) != len(chunks):
             raise ValueError("Embedding count did not match RAG chunk count.")
 
@@ -574,7 +580,11 @@ def infer_chunks_with_llm(
 
     results: list[LLMResult] = []
     for chunk, patterns in zip(chunks, pattern_sets, strict=True):
-        chunk_messages_slice = messages[chunk.source_message_start : chunk.source_message_end + 1]
+        chunk_messages_slice = [
+            message
+            for message in messages[chunk.source_message_start : chunk.source_message_end + 1]
+            if message.kind == "text" and message.speaker != "UNKNOWN"
+        ]
         result = infer_with_llm(
             chunk_messages_slice,
             patterns,
@@ -583,7 +593,8 @@ def infer_chunks_with_llm(
             other_name,
         )
         if result is None:
-            return None
+            logger.error("LLM inference failed for one chunk; excluding it from aggregation.")
+            continue
         results.append(result)
     return combine_chunk_llm_results(results)
 
