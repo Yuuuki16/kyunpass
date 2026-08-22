@@ -152,7 +152,10 @@ def infer_with_llm(
         )
         data = json.loads(output)
         variables = {key: max(0, min(100, int(data[key]))) for key in VARIABLE_LABELS}
-        return variables, str(data["evaluation"]).strip()
+        evaluation = str(data["evaluation"]).strip()
+        if not evaluation:
+            raise ValueError("LLM returned an empty evaluation.")
+        return variables, evaluation
     except Exception:
         logger.exception("LLM analysis failed; falling back to keyword-based scoring.")
         return None

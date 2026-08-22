@@ -242,3 +242,36 @@ def test_analyze_falls_back_when_llm_raises(monkeypatch) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["variables"]["respect"] > 20
+
+
+def test_analyze_falls_back_when_llm_evaluation_is_empty(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    llm_output = json.dumps(
+        {
+            "respect": 90,
+            "interest": 80,
+            "relationship_building": 70,
+            "casual_sex_seeking": 0,
+            "self_priority": 0,
+            "relationship_ambiguity": 0,
+            "evaluation": "   ",
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n相手: ありがとう！また会おう\n相手: 無理しないでね",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    # LLMの評価文が空なら、スコアと評価文の食い違いを避けるため両方ともフォールバック値になる。
+    assert data["variables"]["respect"] != 90
+    assert data["evaluation"] != "   "
