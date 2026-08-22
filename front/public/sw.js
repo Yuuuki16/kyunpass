@@ -1,5 +1,12 @@
-const CACHE_NAME = "kyunpass-static-v1";
-const STATIC_ASSETS = ["/", "/manifest.webmanifest"];
+const CACHE_NAME = "kyunpass-static-v2";
+const STATIC_ASSETS = [
+  "/",
+  "/manifest.webmanifest",
+  "/header/Frame.svg",
+  "/header/kyunpass-icon.svg",
+  "/header/kyunpass-logo.svg",
+  "/wave/kyunpass-wave.svg",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
