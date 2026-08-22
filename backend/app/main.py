@@ -27,7 +27,6 @@ app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credenti
 UNKNOWN_RATIO_THRESHOLD = 0.5
 MIN_TEXT_MESSAGES_FOR_RATIO_CHECK = 5
 TALK_HISTORY_MAX_LENGTH = 2_000_000
-OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 DANGER_THRESHOLD = 3
 MAX_VARIABLE_SCORE = 5
 LEGACY_VARIABLE_SCALE = 20
@@ -102,6 +101,7 @@ class AnalyzeResponse(BaseModel):
     kyun_messages: list[str] = []
     caution_messages: list[str] = []
     timeline: list[TimelinePoint] = []
+    theme_evaluations: dict[str, str] = {}
 
 
 class RagChunkRequest(BaseModel):
@@ -299,6 +299,16 @@ def verify_other_quotes(messages: list[SeparatedMessage], quotes: list[str]) -> 
     other_texts = [m.text for m in messages if m.speaker == "OTHER" and m.kind == "text"]
     return [quote for quote in quotes if any(quote in text for text in other_texts)]
 
+def bucket_messages_by_date(messages: list[SeparatedMessage]) -> dict[str, list[SeparatedMessage]]:
+    buckets: dict[str, list[SeparatedMessage]] = {}
+    for m in messages:
+        if m.date is not None:
+            buckets.setdefault(m.date, []).append(m)
+    return buckets
+
+def qualifying_dates(buckets: dict[str, list[SeparatedMessage]]) -> list[str]:
+    return [date for date in sorted(buckets) if any(m.speaker == "OTHER" and m.kind == "text" for m in buckets[date])]
+
 LLM_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -309,8 +319,23 @@ LLM_RESPONSE_SCHEMA: dict[str, object] = {
         "kyun_messages": {"type": "array", "items": {"type": "string"}},
         "caution_messages": {"type": "array", "items": {"type": "string"}},
         "evaluation": {"type": "string"},
+        "timeline": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    **{
+                        key: {"type": "integer", "minimum": 0, "maximum": MAX_VARIABLE_SCORE}
+                        for key in LLM_VARIABLE_KEYS
+                    },
+                },
+                "required": ["date", *LLM_VARIABLE_KEYS],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": [*LLM_VARIABLE_KEYS, "kyun_messages", "caution_messages", "evaluation"],
+    "required": [*LLM_VARIABLE_KEYS, "kyun_messages", "caution_messages", "evaluation", "timeline"],
     "additionalProperties": False,
 }
 
@@ -376,13 +401,20 @@ def build_llm_prompt(
     labels: dict[str, str],
     user_name: str,
     other_name: str,
-    transcript: str | None = None,
 ) -> str:
-    if transcript is None:
-        transcript = "\n".join(
-            f"[{other_name if m.speaker == 'OTHER' else user_name if m.speaker == 'USER' else m.speaker}] {m.text}"
-            for m in messages
-        )
+    def line(m: SeparatedMessage) -> str:
+        name = other_name if m.speaker == "OTHER" else user_name if m.speaker == "USER" else m.speaker
+        date_prefix = f"[{m.date}]" if m.date else ""
+        return f"{date_prefix}[{name}] {m.text}"
+
+    transcript = "\n".join(line(m) for m in messages)
+    dates = qualifying_dates(bucket_messages_by_date(messages))
+    timeline_instruction = (
+        f"- timeline: one entry per date in this exact list, using each date string exactly as written: {json.dumps(dates, ensure_ascii=False)}. "
+        f"For each date, score the same six variables (a-f, same integer 0-5 scale and meaning as above) using only {other_name}'s messages sent on that date within this excerpt."
+        if dates
+        else "- timeline: return an empty array (no dated messages were found in this excerpt)."
+    )
     return f"""You are the analysis engine behind kyunpass. Its mission is to help {user_name} find out whether {other_name}'s feelings are pure (純粋) rather than calculated (打算的), so {user_name} can resolve romantic anxiety early and avoid trouble before it happens. Do not make {user_name} suspicious of or aggressive toward {other_name} for its own sake — the goal is protecting {user_name}, not "winning" the relationship or scoring technique.
 
 Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Base the six scores strictly on the content of {other_name}'s own messages — {user_name}'s messages are provided only as context for what {other_name} was responding to, and must never themselves be scored or quoted. Every score and every quote must be traceable to a specific message actually sent by {other_name}.
@@ -394,6 +426,7 @@ Return JSON only:
 - integer 0-5 values for a, b, c, d, e, f (in that exact meaning and no other scoring keys)
 - kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of respect/interest/relationship_building (empty array if none)
 - caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
+{timeline_instruction}
 - evaluation: a short Japanese evaluation. If casual_sex_seeking, self_priority, or relationship_ambiguity is {DANGER_THRESHOLD} or higher, evaluation MUST clearly and gently warn {user_name} and encourage them to pause and be cautious (引き止める) instead of describing the situation neutrally — protect {user_name}, do not attack {other_name}. Otherwise, describe the positive signs found.
 Never use vulgar, graphic, or directly sexual wording anywhere in your response (evaluation text or quoted messages), even when quoting the conversation or describing casual_sex_seeking. Paraphrase or soften such wording instead, e.g. describe it as "身体的な関係を急いでいる" rather than using explicit terms.
 Relationship context:
@@ -402,7 +435,7 @@ Relationship context:
 - 現在の関係性: {labels["relationship"]}
 Conversation:
 {transcript}
-Retrieved similar patterns (reference only):
+Retrieved similar labeled examples (reference only, for calibration — each variable uses the same integer 0-5 scale you must output):
 {json.dumps(patterns, ensure_ascii=False)}"""
 
 class LLMResult(NamedTuple):
@@ -410,6 +443,7 @@ class LLMResult(NamedTuple):
     evaluation: str
     kyun_messages: list[str]
     caution_messages: list[str]
+    timeline: dict[str, dict[str, int]]
 
 def infer_with_llm(
     messages: list[SeparatedMessage],
@@ -417,7 +451,6 @@ def infer_with_llm(
     labels: dict[str, str],
     user_name: str,
     other_name: str,
-    transcript: str | None = None,
 ) -> LLMResult | None:
     if not os.getenv("OPENAI_API_KEY"):
         return None
@@ -429,7 +462,6 @@ def infer_with_llm(
             labels,
             user_name,
             other_name,
-            transcript=transcript,
         )
         output = (
             OpenAI()
@@ -444,7 +476,6 @@ def infer_with_llm(
                         "strict": True,
                     }
                 },
-                timeout=OPENAI_TIMEOUT_SECONDS,
             )
             .output_text
         )
@@ -461,7 +492,18 @@ def infer_with_llm(
             raise ValueError("LLM returned an empty evaluation.")
         kyun_messages = [str(text) for text in data.get("kyun_messages", [])]
         caution_messages = [str(text) for text in data.get("caution_messages", [])]
-        return LLMResult(variables, evaluation, kyun_messages, caution_messages)
+        timeline: dict[str, dict[str, int]] = {}
+        for entry in data.get("timeline", []):
+            if not isinstance(entry, dict) or "date" not in entry:
+                continue
+            try:
+                timeline[str(entry["date"])] = {
+                    variable_key: max(0, min(MAX_VARIABLE_SCORE, int(entry[llm_key])))
+                    for variable_key, llm_key in VARIABLE_TO_LLM_KEY.items()
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+        return LLMResult(variables, evaluation, kyun_messages, caution_messages, timeline)
     except Exception:
         logger.exception("LLM analysis failed; falling back to keyword-based scoring.")
         return None
@@ -484,6 +526,20 @@ def average_observed_variables(
     return averaged
 
 
+def combine_chunk_timelines(
+    chunk_timelines: list[dict[str, dict[str, int]]],
+) -> dict[str, dict[str, int]]:
+    """Average per-date scores across every chunk that covers that date."""
+    values_by_date: dict[str, list[dict[str, int]]] = {}
+    for timeline in chunk_timelines:
+        for date, values in timeline.items():
+            values_by_date.setdefault(date, []).append(values)
+    return {
+        date: average_observed_variables(values)
+        for date, values in values_by_date.items()
+    }
+
+
 def combine_chunk_llm_results(results: list[LLMResult]) -> LLMResult | None:
     """Aggregate per-chunk LLM outputs without asking the model to average."""
     if not results:
@@ -499,10 +555,12 @@ def combine_chunk_llm_results(results: list[LLMResult]) -> LLMResult | None:
         evaluation="\n".join(evaluations[:MAX_EVIDENCE_MESSAGES]),
         kyun_messages=unique_texts("kyun_messages"),
         caution_messages=unique_texts("caution_messages"),
+        timeline=combine_chunk_timelines([result.timeline for result in results]),
     )
 
 
 def infer_chunks_with_llm(
+    messages: list[SeparatedMessage],
     chunks: list[RagChunk],
     pattern_sets: list[list[dict[str, object]]],
     labels: dict[str, str],
@@ -516,13 +574,13 @@ def infer_chunks_with_llm(
 
     results: list[LLMResult] = []
     for chunk, patterns in zip(chunks, pattern_sets, strict=True):
+        chunk_messages_slice = messages[chunk.source_message_start : chunk.source_message_end + 1]
         result = infer_with_llm(
-            [],
+            chunk_messages_slice,
             patterns,
             labels,
             user_name,
             other_name,
-            transcript=chunk.text,
         )
         if result is None:
             return None
@@ -548,17 +606,16 @@ def calculate_f(values: dict[str, int]) -> int:
     )
     return max(0, min(100, (x + 900) // 18))
 
-def build_timeline(messages: list[SeparatedMessage], g: float) -> list[TimelinePoint]:
-    buckets: dict[str, list[SeparatedMessage]] = {}
-    for m in messages:
-        if m.date is not None:
-            buckets.setdefault(m.date, []).append(m)
+def build_timeline(
+    messages: list[SeparatedMessage],
+    g: float,
+    llm_timeline: dict[str, dict[str, int]] | None = None,
+) -> list[TimelinePoint]:
+    buckets = bucket_messages_by_date(messages)
     points = []
-    for date in sorted(buckets):
+    for date in qualifying_dates(buckets):
         bucket = buckets[date]
-        if not any(m.speaker == "OTHER" and m.kind == "text" for m in bucket):
-            continue
-        values = fallback_variables(bucket)
+        values = (llm_timeline or {}).get(date) or fallback_variables(bucket)
         f_score = calculate_f(values)
         points.append(TimelinePoint(date=date, function_score=f_score, kyun_score=int(f_score * g), variables=values, message_count=len(bucket)))
     return points
@@ -571,6 +628,30 @@ def fallback_evaluation(score: float, values: dict[str, int]) -> str:
         return f"『{VARIABLE_LABELS[riskiest]}』という気になるサインが見られます。無理に関係を進めず、一度立ち止まって様子を見ることをおすすめします。"
     positive = max(POSITIVE_VARIABLE_KEYS, key=values.get)
     return f"キュン度は{'高め' if score >= 70 else 'これから伸びる' if score >= 45 else '慎重に見極める'}段階です。特に『{VARIABLE_LABELS[positive]}』傾向が見られます。"
+
+
+def theme_evaluations(values: dict[str, int]) -> dict[str, str]:
+    messages = {
+        "casual_sex_seeking": (
+            "身体的な関係を急ぐサインは強くありません。相手のペースを見ながら、安心できる進め方を選べそうです。",
+            "身体的な関係を急ぐサインが少し見られます。無理に合わせず、自分のペースを大切にしましょう。",
+            "身体的な関係を急ぐサインが強く見られます。関係を急がず、違和感があれば立ち止まって確認しましょう。",
+        ),
+        "self_priority": (
+            "相手が自分の都合だけを優先するサインは強くありません。お互いの予定や気持ちを尊重できそうです。",
+            "相手の都合を優先するサインが少し見られます。あなたの予定や気持ちも同じように大切にしましょう。",
+            "相手の都合を優先するサインが強く見られます。無理に合わせず、対等に話し合えるかを見極めましょう。",
+        ),
+        "relationship_ambiguity": (
+            "関係を曖昧にするサインは強くありません。相手の気持ちは比較的わかりやすく表れていそうです。",
+            "関係を曖昧にするサインが少し見られます。急いで答えを出さず、言葉と行動を見ていきましょう。",
+            "関係を曖昧にするサインが強く見られます。期待だけで進めず、あなたが望む関係を確認しましょう。",
+        ),
+    }
+    return {
+        key: messages[key][0 if values[key] < 2 else 1 if values[key] < DANGER_THRESHOLD else 2]
+        for key in DANGER_VARIABLE_KEYS
+    }
 
 @app.get("/health")
 def health() -> dict[str, str]:
@@ -637,6 +718,7 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     pattern_sets = retrieve_patterns_for_chunks(chunks)
     patterns = merge_similar_patterns(pattern_sets)
     llm_result = infer_chunks_with_llm(
+        messages,
         chunks,
         pattern_sets,
         labels,
@@ -644,21 +726,22 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         request.other_name,
     )
     if llm_result:
-        values, llm_evaluation, kyun_messages, caution_messages = llm_result
+        values, llm_evaluation, kyun_messages, caution_messages, llm_timeline = llm_result
         kyun_messages = verify_other_quotes(messages, kyun_messages)
         caution_messages = verify_other_quotes(messages, caution_messages)
     else:
         values, llm_evaluation = fallback_variables(messages), ""
         kyun_messages, caution_messages = fallback_evidence(messages)
+        llm_timeline = None
     kyun_messages = [mask_vulgar_words(text) for text in kyun_messages]
     caution_messages = [mask_vulgar_words(text) for text in caution_messages]
     g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
     f_score = calculate_f(values)
     k = int(f_score * g)
-    timeline = build_timeline(messages, g)
+    timeline = build_timeline(messages, g, llm_timeline)
     evaluation = mask_vulgar_words(llm_evaluation or fallback_evaluation(k, values))
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
-  similar_patterns=patterns, evaluation=evaluation, kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline)
+    similar_patterns=patterns, evaluation=evaluation, kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline, theme_evaluations=theme_evaluations(values))
 
 @app.post("/investigate")
 async def investigate(file: UploadFile) -> dict[str, object]:

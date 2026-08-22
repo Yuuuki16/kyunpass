@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
@@ -24,7 +31,7 @@ const EMPTY_INVESTIGATION_RESULT: InvestigationResult = {
   suggestedOtherName: "",
 };
 
-function readInvestigationResult() {
+function readInvestigationResult(): InvestigationResult {
   const storedCandidates = sessionStorage.getItem("kyunpass:candidateSpeakers");
   let candidates: string[] = [];
   try {
@@ -52,22 +59,46 @@ function readInvestigationResult() {
   };
 }
 
+function subscribeToInvestigationResult() {
+  return () => {};
+}
+
+function getServerInvestigationResult(): InvestigationResult {
+  return EMPTY_INVESTIGATION_RESULT;
+}
+
 export function SelectNames() {
   const router = useRouter();
-  const [investigationResult, setInvestigationResult] =
-    useState<InvestigationResult>(EMPTY_INVESTIGATION_RESULT);
-  const [hasLoadedInvestigation, setHasLoadedInvestigation] = useState(false);
-  const [userName, setUserName] = useState("");
-  const [otherName, setOtherName] = useState("");
-  const { candidates } = investigationResult;
 
-  useEffect(() => {
-    const result = readInvestigationResult();
-    setInvestigationResult(result);
-    setUserName(result.suggestedUserName);
-    setOtherName(result.suggestedOtherName);
-    setHasLoadedInvestigation(true);
+  // sessionStorage doesn't exist on the server, so the server (and the
+  // client's first hydration pass) must render EMPTY_INVESTIGATION_RESULT.
+  // useSyncExternalStore swaps in the real, client-only value right after
+  // hydration without a manual effect+flag and without a mismatch.
+  const cachedResultRef = useRef<InvestigationResult | null>(null);
+  const getInvestigationResult = useCallback(() => {
+    if (cachedResultRef.current === null) {
+      cachedResultRef.current = readInvestigationResult();
+    }
+    return cachedResultRef.current;
   }, []);
+  const investigationResult = useSyncExternalStore(
+    subscribeToInvestigationResult,
+    getInvestigationResult,
+    getServerInvestigationResult,
+  );
+  const hasLoadedInvestigation =
+    investigationResult !== EMPTY_INVESTIGATION_RESULT;
+  const { candidates, suggestedUserName, suggestedOtherName } =
+    investigationResult;
+
+  // Only track the user's explicit choice; while it's unset, fall back to
+  // the suggested name derived above instead of syncing it into state.
+  const [userNameOverride, setUserNameOverride] = useState<string | null>(null);
+  const [otherNameOverride, setOtherNameOverride] = useState<string | null>(
+    null,
+  );
+  const userName = userNameOverride ?? suggestedUserName;
+  const otherName = otherNameOverride ?? suggestedOtherName;
 
   useEffect(() => {
     if (hasLoadedInvestigation && candidates.length === 0) {
@@ -76,11 +107,24 @@ export function SelectNames() {
   }, [candidates, hasLoadedInvestigation, router]);
 
   const handleUserNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setUserName(event.target.value);
+    const nextUserName = event.target.value;
+    setUserNameOverride(nextUserName);
+    if (nextUserName !== "" && nextUserName === otherName) {
+      setOtherNameOverride(userName);
+    }
   };
 
   const handleOtherNameChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setOtherName(event.target.value);
+    const nextOtherName = event.target.value;
+    setOtherNameOverride(nextOtherName);
+    if (nextOtherName !== "" && nextOtherName === userName) {
+      setUserNameOverride(otherName);
+    }
+  };
+
+  const handleClearNames = () => {
+    setUserNameOverride("");
+    setOtherNameOverride("");
   };
 
   const canSubmit =
@@ -119,30 +163,12 @@ export function SelectNames() {
 
           <div className="flex flex-col gap-5 px-5 py-6">
             <p className="text-[12px] leading-[17px] text-[#4B4B4B]">
-              トーク履歴から話者を検出しました。あなたと相手の名前をそれぞれ選んでください。
+              トーク履歴から話者を検出しました。受け取り手と調査対象者の名前をそれぞれ選んでください。
             </p>
 
             <label className="flex flex-col gap-1.5">
               <span className="text-[14px] font-bold text-[#D4537E]">
-                自分の名前
-              </span>
-              <select
-                value={userName}
-                onChange={handleUserNameChange}
-                className="h-11 rounded-lg border border-[#FF99B4] bg-white px-3 text-[14px] text-[#4B4B4B]"
-              >
-                <option value="">選択してください</option>
-                {candidates.map((name) => (
-                  <option key={name} value={name} disabled={name === otherName}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[14px] font-bold text-[#D4537E]">
-                相手の名前
+                調査対象者の名前
               </span>
               <select
                 value={otherName}
@@ -151,12 +177,38 @@ export function SelectNames() {
               >
                 <option value="">選択してください</option>
                 {candidates.map((name) => (
-                  <option key={name} value={name} disabled={name === userName}>
+                  <option key={name} value={name}>
                     {name}
                   </option>
                 ))}
               </select>
             </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[14px] font-bold text-[#D4537E]">
+                受け取り手の名前
+              </span>
+              <select
+                value={userName}
+                onChange={handleUserNameChange}
+                className="h-11 rounded-lg border border-[#FF99B4] bg-white px-3 text-[14px] text-[#4B4B4B]"
+              >
+                <option value="">選択してください</option>
+                {candidates.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              type="button"
+              disabled={userName === "" && otherName === ""}
+              onClick={handleClearNames}
+              className="h-10 w-full rounded-lg border border-[#FF99B4] bg-white text-[14px] font-bold text-[#D4537E] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              選択を解除
+            </button>
 
             <button
               type="button"
