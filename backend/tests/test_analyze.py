@@ -1,16 +1,21 @@
 ﻿import json
+import sys
+import types
 
 from fastapi.testclient import TestClient
 
 from app.main import (
-    LLM_RESPONSE_SCHEMA,
     VARIABLE_LABELS,
     SeparatedMessage,
+    analysis_chunks,
     app,
+    average_observed_variables,
     build_llm_prompt,
+    calculate_f,
     fallback_evaluation,
     fallback_evidence,
     mask_vulgar_words,
+    retrieve_patterns_for_chunks,
     theme_evaluations,
     verify_other_quotes,
 )
@@ -41,7 +46,8 @@ def test_analyze_separates_speakers_and_calculates_score() -> None:
     data = response.json()
     assert data["context_score"] == 0.64
     assert [message["speaker"] for message in data["separated_messages"]] == ["USER", "OTHER", "OTHER"]
-    assert data["variables"]["respect"] > 20
+    assert data["variables"]["respect"] == 4
+    assert all(0 <= value <= 5 for value in data["variables"].values())
     assert data["kyun_score"] == int(
       data["function_score"] * data["context_score"]
   )
@@ -246,18 +252,18 @@ def test_analyze_uses_llm_timeline_when_available(monkeypatch) -> None:
     )
     llm_output = json.dumps(
         {
-            "respect": 50,
-            "interest": 50,
-            "relationship_building": 50,
-            "casual_sex_seeking": 0,
-            "self_priority": 0,
-            "relationship_ambiguity": 0,
+            "a": 3,
+            "b": 3,
+            "c": 3,
+            "d": 0,
+            "e": 0,
+            "f": 0,
             "kyun_messages": [],
             "caution_messages": [],
             "evaluation": "LLMによる評価テキスト",
             "timeline": [
-                {"date": "2025-04-18", "respect": 90, "interest": 85, "relationship_building": 80, "casual_sex_seeking": 0, "self_priority": 0, "relationship_ambiguity": 0},
-                {"date": "2025-04-19", "respect": 10, "interest": 5, "relationship_building": 5, "casual_sex_seeking": 60, "self_priority": 40, "relationship_ambiguity": 30},
+                {"date": "2025-04-18", "a": 5, "b": 5, "c": 4, "d": 0, "e": 0, "f": 0},
+                {"date": "2025-04-19", "a": 1, "b": 0, "c": 0, "d": 4, "e": 3, "f": 2},
             ],
         }
     )
@@ -276,8 +282,8 @@ def test_analyze_uses_llm_timeline_when_available(monkeypatch) -> None:
     assert response.status_code == 200
     timeline = response.json()["timeline"]
     assert [point["date"] for point in timeline] == ["2025-04-18", "2025-04-19"]
-    assert timeline[0]["variables"]["respect"] == 90
-    assert timeline[1]["variables"]["casual_sex_seeking"] == 60
+    assert timeline[0]["variables"]["respect"] == 5
+    assert timeline[1]["variables"]["casual_sex_seeking"] == 4
     assert timeline[0]["kyun_score"] > timeline[1]["kyun_score"]
 
     prompt = captured["input"]
@@ -300,17 +306,17 @@ def test_analyze_falls_back_to_keyword_timeline_for_dates_llm_omits(monkeypatch)
     )
     llm_output = json.dumps(
         {
-            "respect": 50,
-            "interest": 50,
-            "relationship_building": 50,
-            "casual_sex_seeking": 0,
-            "self_priority": 0,
-            "relationship_ambiguity": 0,
+            "a": 3,
+            "b": 3,
+            "c": 3,
+            "d": 0,
+            "e": 0,
+            "f": 0,
             "kyun_messages": [],
             "caution_messages": [],
             "evaluation": "LLMによる評価テキスト",
             "timeline": [
-                {"date": "2025-04-18", "respect": 90, "interest": 85, "relationship_building": 80, "casual_sex_seeking": 0, "self_priority": 0, "relationship_ambiguity": 0},
+                {"date": "2025-04-18", "a": 5, "b": 5, "c": 4, "d": 0, "e": 0, "f": 0},
             ],
         }
     )
@@ -328,8 +334,8 @@ def test_analyze_falls_back_to_keyword_timeline_for_dates_llm_omits(monkeypatch)
 
     assert response.status_code == 200
     timeline = response.json()["timeline"]
-    assert timeline[0]["variables"]["respect"] == 90
-    assert timeline[1]["variables"] == {"respect": 40, "interest": 20, "relationship_building": 20, "casual_sex_seeking": 20, "self_priority": 20, "relationship_ambiguity": 20}
+    assert timeline[0]["variables"]["respect"] == 5
+    assert timeline[1]["variables"] == {"respect": 3, "interest": 0, "relationship_building": 0, "casual_sex_seeking": 0, "self_priority": 0, "relationship_ambiguity": 0}
 
 
 def test_analyze_rejects_when_user_name_never_appears() -> None:
@@ -415,22 +421,6 @@ def test_build_llm_prompt_instructs_warning_for_danger_signals() -> None:
     assert "純粋" in prompt
 
 
-def test_llm_response_schema_allows_decimal_variable_scores() -> None:
-    for key in VARIABLE_LABELS:
-        assert LLM_RESPONSE_SCHEMA["properties"][key]["type"] == "number"
-
-    timeline_item_properties = LLM_RESPONSE_SCHEMA["properties"]["timeline"]["items"]["properties"]
-    for key in VARIABLE_LABELS:
-        assert timeline_item_properties[key]["type"] == "number"
-
-
-def test_build_llm_prompt_instructs_decimal_precision_without_rounding() -> None:
-    prompt = build_llm_prompt([], [], {"period": "", "meeting": "", "relationship": ""}, user_name="太郎", other_name="花子")
-
-    assert "one decimal place" in prompt
-    assert "never a value ending in .0 or .5" in prompt
-
-
 def test_fallback_evidence_extracts_matching_other_messages() -> None:
     messages = [
         SeparatedMessage(speaker="USER", text="今度会える？"),
@@ -495,22 +485,142 @@ def test_analyze_masks_vulgar_words_in_caution_messages() -> None:
 
 
 def test_fallback_evaluation_warns_when_danger_signal_is_high() -> None:
-    values = {"respect": 20, "interest": 20, "relationship_building": 20, "casual_sex_seeking": 80, "self_priority": 10, "relationship_ambiguity": 10}
+    values = {"respect": 3, "interest": 3, "relationship_building": 3, "casual_sex_seeking": 4, "self_priority": 1, "relationship_ambiguity": 1}
 
     evaluation = fallback_evaluation(30, values)
 
     assert "立ち止まって" in evaluation
 
 
+def _variables(**overrides: int) -> dict[str, int]:
+    values = {key: 0 for key in VARIABLE_LABELS}
+    values.update(overrides)
+    return values
+
+
+def test_average_observed_variables_excludes_unobserved_zeroes() -> None:
+    averaged = average_observed_variables(
+        [
+            _variables(interest=5),
+            _variables(),
+            _variables(interest=4),
+            _variables(),
+            _variables(interest=3),
+        ]
+    )
+
+    assert averaged["interest"] == 4
+
+
+def test_average_observed_variables_keeps_all_unobserved_values_at_zero() -> None:
+    averaged = average_observed_variables(
+        [_variables(relationship_ambiguity=0) for _ in range(3)]
+    )
+
+    assert averaged["relationship_ambiguity"] == 0
+
+
+def test_average_observed_variables_keeps_unscored_variables_unobserved() -> None:
+    averaged = average_observed_variables([_variables(respect=4)])
+
+    assert averaged["respect"] == 4
+    assert averaged["interest"] == 0
+    assert averaged["relationship_ambiguity"] == 0
+
+
+def test_calculate_f_maps_the_new_scale_to_the_existing_formula() -> None:
+    assert calculate_f(_variables()) == 50
+    assert calculate_f(
+        _variables(respect=5, interest=5, relationship_building=5)
+    ) == 100
+
+
+def test_build_llm_prompt_defines_unobserved_zero_and_a_to_f_output() -> None:
+    prompt = build_llm_prompt(
+        [],
+        [],
+        {"period": "", "meeting": "", "relationship": ""},
+        user_name="太郎",
+        other_name="花子",
+    )
+
+    assert "0 means" in prompt
+    assert "integer 0-5 values for a, b, c, d, e, f" in prompt
+    assert "Intimate topics alone are not evidence" in prompt
+
+
+def test_rag_retrieval_keeps_embedding_model_and_rpc_top_five(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-supabase-key")
+    captured: dict[str, object] = {}
+
+    class FakeEmbeddings:
+        def create(self, **kwargs: object) -> object:
+            captured["embedding_request"] = kwargs
+            inputs = kwargs["input"]
+            return types.SimpleNamespace(
+                data=[types.SimpleNamespace(embedding=[0.0] * 1536) for _ in inputs]
+            )
+
+    class FakeOpenAI:
+        def __init__(self) -> None:
+            self.embeddings = FakeEmbeddings()
+
+    class FakeSupabase:
+        def rpc(self, name: str, arguments: dict[str, object]) -> "FakeSupabase":
+            captured["rpc_name"] = name
+            captured["rpc_arguments"] = arguments
+            return self
+
+        def execute(self) -> object:
+            return types.SimpleNamespace(
+                data=[
+                    {
+                        "id": index,
+                        "conversation_example": f"example {index}",
+                        "description": f"description {index}",
+                        "a": 0,
+                        "b": 0,
+                        "c": 0,
+                        "d": 0,
+                        "e": 0,
+                        "f": 0,
+                        "similarity": 0.9 - index / 100,
+                    }
+                    for index in range(6)
+                ]
+            )
+
+    fake_supabase_module = types.ModuleType("supabase")
+    fake_supabase_module.create_client = lambda url, key: FakeSupabase()
+    monkeypatch.setitem(sys.modules, "supabase", fake_supabase_module)
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+
+    chunks = analysis_chunks(
+        [
+            SeparatedMessage(speaker="USER", text="今度会える？"),
+            SeparatedMessage(speaker="OTHER", text="また会おう"),
+        ]
+    )
+    pattern_sets = retrieve_patterns_for_chunks(chunks)
+
+    assert captured["embedding_request"]["model"] == "text-embedding-3-small"
+    assert captured["embedding_request"]["input"] == [chunks[0].text]
+    assert len(captured["rpc_arguments"]["query_embedding"]) == 1536
+    assert captured["rpc_name"] == "match_rag_patterns"
+    assert captured["rpc_arguments"]["match_count"] == 5
+    assert len(pattern_sets) == 1
+    assert len(pattern_sets[0]) == 5
+
+
 def test_theme_evaluations_returns_three_softened_impressions() -> None:
-    values = {
-        "respect": 20,
-        "interest": 20,
-        "relationship_building": 20,
-        "casual_sex_seeking": 80,
-        "self_priority": 10,
-        "relationship_ambiguity": 10,
-    }
+    values = _variables(
+        respect=1,
+        interest=1,
+        relationship_building=1,
+        casual_sex_seeking=4,
+    )
 
     evaluations = theme_evaluations(values)
 
@@ -548,12 +658,12 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
     captured: dict = {}
     llm_output = json.dumps(
         {
-            "respect": 90,
-            "interest": 80,
-            "relationship_building": 70,
-            "casual_sex_seeking": 0,
-            "self_priority": 0,
-            "relationship_ambiguity": 0,
+            "a": 5,
+            "b": 4,
+            "c": 3,
+            "d": 0,
+            "e": 0,
+            "f": 0,
             "kyun_messages": ["ありがとう！また会おう"],
             "caution_messages": [],
             "evaluation": "LLMによる評価テキスト",
@@ -573,7 +683,7 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["variables"]["respect"] == 90
+    assert data["variables"]["respect"] == 5
     assert data["evaluation"] == "LLMによる評価テキスト"
     assert data["kyun_messages"] == ["ありがとう！また会おう"]
     assert data["caution_messages"] == []
@@ -586,55 +696,17 @@ def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
     assert captured["text"]["format"]["type"] == "json_schema"
 
 
-def test_analyze_rounds_decimal_llm_scores_instead_of_truncating(monkeypatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    captured: dict = {}
-    llm_output = json.dumps(
-        {
-            "respect": 62.7,
-            "interest": 47.4,
-            "relationship_building": 83.6,
-            "casual_sex_seeking": 0.2,
-            "self_priority": 0.4,
-            "relationship_ambiguity": 0.1,
-            "kyun_messages": [],
-            "caution_messages": [],
-            "evaluation": "LLMによる評価テキスト",
-        }
-    )
-    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
-
-    response = client.post(
-        "/analyze",
-        json={
-            "user_name": "自分",
-            "other_name": "花子",
-            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
-            "talk_history": "自分: 今度会える？\n花子: ありがとう！また会おう",
-        },
-    )
-
-    assert response.status_code == 200
-    variables = response.json()["variables"]
-    assert variables["respect"] == 63
-    assert variables["interest"] == 47
-    assert variables["relationship_building"] == 84
-    assert variables["casual_sex_seeking"] == 0
-    assert variables["self_priority"] == 0
-    assert variables["relationship_ambiguity"] == 0
-
-
 def test_analyze_drops_llm_quotes_not_actually_from_other(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     captured: dict = {}
     llm_output = json.dumps(
         {
-            "respect": 90,
-            "interest": 80,
-            "relationship_building": 70,
-            "casual_sex_seeking": 0,
-            "self_priority": 0,
-            "relationship_ambiguity": 0,
+            "a": 5,
+            "b": 4,
+            "c": 3,
+            "d": 0,
+            "e": 0,
+            "f": 0,
             "kyun_messages": ["ありがとう！また会おう", "今度会える？"],
             "caution_messages": ["でっちあげの発言"],
             "evaluation": "LLMによる評価テキスト",
@@ -678,7 +750,7 @@ def test_analyze_falls_back_when_llm_raises(monkeypatch) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["variables"]["respect"] > 20
+    assert data["variables"]["respect"] == 4
 
 
 def test_analyze_falls_back_when_llm_evaluation_is_empty(monkeypatch) -> None:
@@ -686,12 +758,12 @@ def test_analyze_falls_back_when_llm_evaluation_is_empty(monkeypatch) -> None:
     captured: dict = {}
     llm_output = json.dumps(
         {
-            "respect": 90,
-            "interest": 80,
-            "relationship_building": 70,
-            "casual_sex_seeking": 0,
-            "self_priority": 0,
-            "relationship_ambiguity": 0,
+            "a": 5,
+            "b": 4,
+            "c": 3,
+            "d": 0,
+            "e": 0,
+            "f": 0,
             "evaluation": "   ",
         }
     )
@@ -710,7 +782,7 @@ def test_analyze_falls_back_when_llm_evaluation_is_empty(monkeypatch) -> None:
     assert response.status_code == 200
     data = response.json()
     # LLMの評価文が空なら、スコアと評価文の食い違いを避けるため両方ともフォールバック値になる。
-    assert data["variables"]["respect"] != 90
+    assert data["variables"]["respect"] != 5
     assert data["evaluation"] != "   "
 
 
@@ -719,12 +791,12 @@ def test_analyze_includes_retrieved_similar_patterns(monkeypatch) -> None:
     captured: dict = {}
     llm_output = json.dumps(
         {
-            "respect": 90,
-            "interest": 80,
-            "relationship_building": 70,
-            "casual_sex_seeking": 0,
-            "self_priority": 0,
-            "relationship_ambiguity": 0,
+            "a": 5,
+            "b": 4,
+            "c": 3,
+            "d": 0,
+            "e": 0,
+            "f": 0,
             "kyun_messages": ["ありがとう！また会おう"],
             "caution_messages": [],
             "evaluation": "LLMによる評価テキスト",
@@ -737,11 +809,12 @@ def test_analyze_includes_retrieved_similar_patterns(monkeypatch) -> None:
             "pattern_name": "相手の感情を気にかけている",
             "conversation_example": "[OTHER]大丈夫？しんどくない？",
             "description": "相手の感情について言及している",
-            "variables": {"respect": 100, "interest": 100},
+            "similarity": 0.9,
         }
     ]
     monkeypatch.setattr(
-        "app.main.find_similar_rag_patterns", lambda query_text, **kwargs: retrieved_patterns
+        "app.main.retrieve_patterns_for_chunks",
+        lambda chunks: [retrieved_patterns for _ in chunks],
     )
 
     response = client.post(
