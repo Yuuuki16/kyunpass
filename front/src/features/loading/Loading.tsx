@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Zen_Maru_Gothic } from "next/font/google";
 import { Wave } from "@/components/Wave/Wave";
@@ -15,8 +16,47 @@ type LoadingProps = {
   isComplete: boolean;
 };
 
+// The real work happens in one blocking backend call with no progress
+// events, so this bar is a perceived-progress simulation, not real
+// completion percentage: it eases toward a cap and never reaches it on
+// its own, then snaps to 100% once isComplete flips to true.
+const STATUS_MESSAGES = [
+  "トーク履歴を読み込んでいます",
+  "言葉の端々からサインを探しています",
+  "純粋な気持ちを見極めています",
+  "もうすぐ結果が出ます",
+] as const;
+const PROGRESS_CAP_WHILE_ANALYZING = 92;
+const PROGRESS_TIME_CONSTANT_MS = 9000;
+const PROGRESS_TICK_MS = 200;
+const MESSAGE_ROTATE_MS = 3200;
+
 export function Loading({ isComplete }: LoadingProps) {
   const router = useRouter();
+  const [messageIndex, setMessageIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const startTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isComplete) return;
+    const id = setInterval(() => {
+      setMessageIndex((index) => (index + 1) % STATUS_MESSAGES.length);
+    }, MESSAGE_ROTATE_MS);
+    return () => clearInterval(id);
+  }, [isComplete]);
+
+  useEffect(() => {
+    if (isComplete) return;
+    startTimeRef.current ??= Date.now();
+    const id = setInterval(() => {
+      const elapsed = Date.now() - (startTimeRef.current as number);
+      setProgress(
+        PROGRESS_CAP_WHILE_ANALYZING *
+          (1 - Math.exp(-elapsed / PROGRESS_TIME_CONSTANT_MS)),
+      );
+    }, PROGRESS_TICK_MS);
+    return () => clearInterval(id);
+  }, [isComplete]);
 
   return (
     <div
@@ -73,7 +113,20 @@ export function Loading({ isComplete }: LoadingProps) {
                   />
                 ))}
               </div>
-              <p className="m-0 text-2xl font-bold">分析中...</p>
+              <div className="flex w-[170px] flex-col items-center gap-2.5">
+                <p
+                  className="m-0 min-h-[40px] text-center text-[15px] leading-5 font-bold"
+                  aria-live="polite"
+                >
+                  {STATUS_MESSAGES[messageIndex]}
+                </p>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#EDEDED]">
+                  <div
+                    className="h-full rounded-full bg-[#D4537E] transition-[width] duration-200 ease-out motion-reduce:transition-none"
+                    style={{ width: `${isComplete ? 100 : progress}%` }}
+                  />
+                </div>
+              </div>
             </>
           )}
         </section>
