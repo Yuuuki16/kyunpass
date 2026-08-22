@@ -70,7 +70,8 @@ function parseVariables(raw: string | null): Record<string, number> {
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
     return Object.fromEntries(
       Object.entries(parsed).filter(
         ([, value]) => typeof value === "number" && Number.isFinite(value),
@@ -85,7 +86,8 @@ function parseEvaluations(raw: string | null): Record<string, string> {
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
     return Object.fromEntries(
       Object.entries(parsed).filter(([, value]) => typeof value === "string"),
     );
@@ -300,7 +302,11 @@ function ThemeEvaluation({
       <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
         テーマ別評価
       </h2>
-      <div className="mt-3 grid grid-cols-3 gap-1" role="tablist" aria-label="テーマ別評価">
+      <div
+        className="mt-3 grid grid-cols-3 gap-1"
+        role="tablist"
+        aria-label="テーマ別評価"
+      >
         {THEMES.map((item, index) => (
           <button
             key={item.key}
@@ -326,7 +332,8 @@ function ThemeEvaluation({
           />
         </div>
         <p className="mt-3 rounded-lg bg-[#FFF5F8] px-3 py-2 text-[12px] leading-[18px] text-[#6B4B57]">
-          {evaluations[theme.key] ?? "このテーマの所感はありません。会話の流れを見ながら確認しましょう。"}
+          {evaluations[theme.key] ??
+            "このテーマの所感はありません。会話の流れを見ながら確認しましょう。"}
         </p>
       </div>
     </section>
@@ -343,8 +350,7 @@ export function Result() {
     cautionMessages,
     variables,
     themeEvaluations,
-  } =
-    useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     // Re-read the store directly rather than trusting the `kyunScore` render
@@ -407,10 +413,7 @@ export function Result() {
           </button>
         </section>
 
-        <ThemeEvaluation
-          variables={variables}
-          evaluations={themeEvaluations}
-        />
+        <ThemeEvaluation variables={variables} evaluations={themeEvaluations} />
 
         {timeline.length >= 2 && trend && (
           <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white p-4">
