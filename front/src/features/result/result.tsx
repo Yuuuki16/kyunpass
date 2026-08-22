@@ -299,7 +299,7 @@ function ThemeEvaluation({
 
   return (
     <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col rounded-lg bg-white p-4">
-      <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+      <h2 className="text-[16px] leading-[23px] font-bold text-[#D4537E]">
         テーマ別評価
       </h2>
       <div
@@ -389,19 +389,19 @@ export function Result() {
             分析結果
           </h1>
 
-          <h2 className="mt-[15px] text-[20px] leading-[29px] font-bold text-[#FBCFE8]">
+          <h2 className="mt-[15px] text-[20px] leading-[29px] font-bold text-[#D4537E]">
             きゅん度
           </h2>
 
-          <div className="mt-[10px] flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center justify-center rounded-[20px] bg-[#FBCFE8] text-[20px] leading-[29px] text-white">
+          <div className="mt-[10px] flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center justify-center rounded-[20px] border border-[#F5B6D2] bg-[#FFF5FA] text-[44px] leading-none font-bold text-[#D4537E]">
             {kyunScore}%
           </div>
 
-          <h2 className="mt-6 text-[20px] leading-[29px] font-bold text-[#FBCFE8]">
+          <h2 className="mt-6 text-[20px] leading-[29px] font-bold text-[#D4537E]">
             判定理由
           </h2>
 
-          <div className="mt-2 flex h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 items-center overflow-y-auto rounded-[20px] bg-[#FBCFE8] px-[10px] py-2 text-[12px] leading-[17px] text-white">
+          <div className="mt-2 h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 overflow-y-auto rounded-[20px] border border-[#F5B6D2] bg-[#FFF5FA] px-4 py-3 text-left text-[16px] leading-[1.8] text-[#555555]">
             {evaluation}
           </div>
 
@@ -418,7 +418,7 @@ export function Result() {
         {timeline.length >= 2 && trend && (
           <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white p-4">
             <div className="flex w-[220px] max-w-full items-baseline justify-between">
-              <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+              <h2 className="text-[16px] leading-[23px] font-bold text-[#D4537E]">
                 きゅん度の推移
               </h2>
               <span className={`text-[13px] font-bold ${trend.className}`}>
@@ -441,7 +441,7 @@ export function Result() {
 
         <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col gap-4 rounded-lg bg-white p-4">
           <div>
-            <h2 className="text-[16px] leading-[23px] font-bold text-[#FBCFE8]">
+            <h2 className="text-[16px] leading-[23px] font-bold text-[#D4537E]">
               きゅんした発言
             </h2>
             {kyunMessages.length > 0 ? (
