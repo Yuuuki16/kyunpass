@@ -242,13 +242,8 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
 
 export function Result() {
   const router = useRouter();
-  const {
-    kyunScore,
-    evaluation,
-    timeline,
-    kyunMessages,
-    cautionMessages,
-  } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const { kyunScore, evaluation, timeline, kyunMessages, cautionMessages } =
+    useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     // Re-read the store directly rather than trusting the `kyunScore` render
