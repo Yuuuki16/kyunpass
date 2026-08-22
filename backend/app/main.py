@@ -31,7 +31,7 @@ OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 DANGER_THRESHOLD = 50
 MAX_EVIDENCE_MESSAGES = 5
 MAX_SIMILAR_PATTERNS = 3
-MAX_LLM_INPUT_MESSAGES = 1000
+MAX_ANALYSIS_MESSAGES = 1000
 
 CONTEXT_OPTIONS: dict[str, dict[str, dict[str, float | str]]] = {
     "A": {"A1": {"label": "1週間未満", "coefficient": 0.8}, "A2": {"label": "1週間〜1か月", "coefficient": 0.85}, "A3": {"label": "1〜3か月", "coefficient": 0.9}, "A4": {"label": "3か月〜1年", "coefficient": 0.95}, "A5": {"label": "1年以上", "coefficient": 1.0}},
@@ -232,8 +232,7 @@ def infer_with_llm(
         return None
     try:
         from openai import OpenAI
-        recent_messages = messages[-MAX_LLM_INPUT_MESSAGES:]
-        prompt = build_llm_prompt(recent_messages, patterns, labels, user_name, other_name)
+        prompt = build_llm_prompt(messages, patterns, labels, user_name, other_name)
         output = (
             OpenAI()
             .responses.create(
@@ -366,7 +365,8 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 "出力したtxtファイルを使い、名前選択画面に表示された候補をそのまま選んでください。"
             ),
         )
-    other_text = "\n".join(m.text for m in messages if m.speaker == "OTHER" and m.kind == "text")
+    recent_messages = messages[-MAX_ANALYSIS_MESSAGES:]
+    other_text = "\n".join(m.text for m in recent_messages if m.speaker == "OTHER" and m.kind == "text")
     patterns = find_similar_rag_patterns(other_text, top_k=MAX_SIMILAR_PATTERNS)
     period_entry = context_entry("A", request.context.period)
     meeting_entry = context_entry("B", request.context.meeting)
@@ -376,14 +376,14 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         "meeting": str(meeting_entry["label"]),
         "relationship": str(relationship_entry["label"]),
     }
-    llm_result = infer_with_llm(messages, patterns, labels, request.user_name, request.other_name)
+    llm_result = infer_with_llm(recent_messages, patterns, labels, request.user_name, request.other_name)
     if llm_result:
         values, llm_evaluation, kyun_messages, caution_messages = llm_result
-        kyun_messages = verify_other_quotes(messages, kyun_messages)
-        caution_messages = verify_other_quotes(messages, caution_messages)
+        kyun_messages = verify_other_quotes(recent_messages, kyun_messages)
+        caution_messages = verify_other_quotes(recent_messages, caution_messages)
     else:
-        values, llm_evaluation = fallback_variables(messages), ""
-        kyun_messages, caution_messages = fallback_evidence(messages)
+        values, llm_evaluation = fallback_variables(recent_messages), ""
+        kyun_messages, caution_messages = fallback_evidence(recent_messages)
     kyun_messages = [mask_vulgar_words(text) for text in kyun_messages]
     caution_messages = [mask_vulgar_words(text) for text in caution_messages]
     g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
