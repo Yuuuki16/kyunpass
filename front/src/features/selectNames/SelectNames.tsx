@@ -93,9 +93,7 @@ export function SelectNames() {
 
   // Only track the user's explicit choice; while it's unset, fall back to
   // the suggested name derived above instead of syncing it into state.
-  const [userNameOverride, setUserNameOverride] = useState<string | null>(
-    null,
-  );
+  const [userNameOverride, setUserNameOverride] = useState<string | null>(null);
   const [otherNameOverride, setOtherNameOverride] = useState<string | null>(
     null,
   );
