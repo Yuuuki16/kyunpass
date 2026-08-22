@@ -182,7 +182,13 @@ import { supabase } from "@db/supabase/client";
 
    `pyproject.toml` / `uv.lock` の内容に従って、Python 3.12の仮想環境（`.venv/`）が作成され、必要なライブラリ（FastAPI, uvicornなど）がインストールされます。
 
-3. 開発サーバーを起動します。
+3. `backend/.env.example` を `backend/.env` としてコピーし、`OPENAI_API_KEY` を設定します。未設定の場合、`/analyze` はLLM分析を行わずキーワードベースのフォールバック分析を返します。
+
+   ```bash
+   cp .env.example .env
+   ```
+
+4. 開発サーバーを起動します。
 
    ```bash
    uv run uvicorn app.main:app --reload
@@ -190,13 +196,13 @@ import { supabase } from "@db/supabase/client";
 
    [http://localhost:8000/health](http://localhost:8000/health) にアクセスして `{"status":"ok"}` が返ればOKです。
 
-4. テストを実行します。
+5. テストを実行します。
 
    ```bash
    uv run pytest
    ```
 
-5. Lintを実行します。
+6. Lintを実行します。
 
    ```bash
    uv run ruff check .

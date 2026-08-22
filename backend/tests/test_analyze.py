@@ -1,6 +1,8 @@
-﻿from fastapi.testclient import TestClient
+﻿import json
 
-from app.main import app
+from fastapi.testclient import TestClient
+
+from app.main import SeparatedMessage, app, build_llm_prompt
 
 client = TestClient(app)
 
@@ -142,3 +144,101 @@ def test_analyze_rejects_same_user_and_other_name() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_build_llm_prompt_includes_names_and_context_labels() -> None:
+    messages = [
+        SeparatedMessage(speaker="USER", text="今度会える？"),
+        SeparatedMessage(speaker="OTHER", text="また会おう"),
+    ]
+    labels = {"period": "1週間未満", "meeting": "友人・知人の紹介", "relationship": "ほとんど面識がない"}
+
+    prompt = build_llm_prompt(messages, [], labels, user_name="太郎", other_name="花子")
+
+    assert "[太郎] 今度会える？" in prompt
+    assert "[花子] また会おう" in prompt
+    assert "1週間未満" in prompt
+    assert "友人・知人の紹介" in prompt
+    assert "ほとんど面識がない" in prompt
+
+
+class _FakeResponse:
+    def __init__(self, output_text: str) -> None:
+        self.output_text = output_text
+
+
+class _FakeResponses:
+    def __init__(self, output_text: str, captured: dict) -> None:
+        self._output_text = output_text
+        self._captured = captured
+
+    def create(self, **kwargs: object) -> _FakeResponse:
+        self._captured.update(kwargs)
+        return _FakeResponse(self._output_text)
+
+
+class _FakeOpenAI:
+    def __init__(self, output_text: str, captured: dict) -> None:
+        self.responses = _FakeResponses(output_text, captured)
+
+
+def test_analyze_uses_llm_result_when_available(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured: dict = {}
+    llm_output = json.dumps(
+        {
+            "respect": 90,
+            "interest": 80,
+            "relationship_building": 70,
+            "casual_sex_seeking": 0,
+            "self_priority": 0,
+            "relationship_ambiguity": 0,
+            "evaluation": "LLMによる評価テキスト",
+        }
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda: _FakeOpenAI(llm_output, captured))
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "花子",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n花子: ありがとう！また会おう",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["variables"]["respect"] == 90
+    assert data["evaluation"] == "LLMによる評価テキスト"
+
+    prompt = captured["input"]
+    assert "花子" in prompt
+    assert "自分" in prompt
+    assert "1週間未満" in prompt
+    assert "友人・知人の紹介" in prompt
+    assert captured["text"]["format"]["type"] == "json_schema"
+
+
+def test_analyze_falls_back_when_llm_raises(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    def _raise() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("openai.OpenAI", _raise)
+
+    response = client.post(
+        "/analyze",
+        json={
+            "user_name": "自分",
+            "other_name": "相手",
+            "context": {"period": "A1", "meeting": "B1", "relationship": "C1"},
+            "talk_history": "自分: 今度会える？\n相手: ありがとう！また会おう\n相手: 無理しないでね",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["variables"]["respect"] > 20
