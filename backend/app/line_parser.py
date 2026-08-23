@@ -9,18 +9,20 @@ from typing import Literal
 Kind = Literal["text", "media", "call", "reaction", "system", "unparsed"]
 Speaker = Literal["USER", "OTHER", "UNKNOWN"]
 
-HEADER_LINE_RE = re.compile(r"^(\[LINE\]\s.*|保存日時：.*)$")
-CHAT_TITLE_RE = re.compile(r"^\[LINE\]\s(.+?)とのトーク履歴$")
-DATE_HEADER_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})\([月火水木金土日]\)$")
+_WEEKDAY_SUFFIX = r"(?:\([月火水木金土日]\)|\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun))"
+
+HEADER_LINE_RE = re.compile(r"^(\[LINE\]\s.*|保存日時：.*|Saved on:.*)$")
+CHAT_TITLE_RE = re.compile(r"^\[LINE\]\s(?:(.+?)とのトーク履歴|Chat history with (.+))$")
+DATE_HEADER_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})" + _WEEKDAY_SUFFIX + r"$")
 THREE_COL_RE = re.compile(r"^(\d{1,2}:\d{2})\t([^\t]*)\t(.*)$")
 TIME_ONLY_RE = re.compile(r"^(\d{1,2}:\d{2})\t(.*)$")
 TWO_COL_RE = re.compile(r"^([^\t:：\n]{1,50})[:：]\s?(.+)$")
 DATETIME_THREE_COL_RE = re.compile(
-    r"^(\d{4})/(\d{1,2})/(\d{1,2})(?:\([月火水木金土日]\))?\s+"
+    r"^(\d{4})/(\d{1,2})/(\d{1,2})" + _WEEKDAY_SUFFIX + r"?\s+"
     r"(\d{1,2}:\d{2}(?::\d{2})?)\t([^\t]*)\t(.*)$"
 )
 DATETIME_NAMED_RE = re.compile(
-    r"^\[?(\d{4})/(\d{1,2})/(\d{1,2})(?:\([月火水木金土日]\))?\s+"
+    r"^\[?(\d{4})/(\d{1,2})/(\d{1,2})" + _WEEKDAY_SUFFIX + r"?\s+"
     r"(\d{1,2}:\d{2}(?::\d{2})?)\]?(?:,\s*|\s+)"
     r"([^\t:：\n]{1,50}?)\s*[:：]\s*(.+)$"
 )
@@ -29,10 +31,13 @@ TIMED_NAMED_RE = re.compile(
 )
 DELETED_WITH_NAME_RE = re.compile(r"^(.+?)がメッセージの送信を取り消しました$")
 DELETED_NO_NAME_RE = re.compile(r"^メッセージの送信を取り消しました$")
+UNSENT_NO_NAME_RE = re.compile(r"^You unsent a message\.$")
+UNSENT_WITH_NAME_RE = re.compile(r"^(.+?) unsent a message\.$")
+ANNOUNCEMENT_WITH_NAME_RE = re.compile(r"^(.+?) made an announcement\.$")
 REACTION_RE = re.compile(r"^\([^)]+\)$")
 MEDIA_TEXTS = {"[写真]", "[動画]", "[ファイル]", "[スタンプ]", "[連絡先]"}
 CALL_PREFIX = "☎"
-ZERO_WIDTH_CHARACTERS_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
+ZERO_WIDTH_CHARACTERS_RE = re.compile(r"[\u200b\u200c\u200d\ufeff\u2066\u2067\u2068\u2069]")
 
 
 @dataclass
@@ -57,8 +62,9 @@ class ParsedHistory:
 
 
 def parse_header(raw: str) -> tuple[str, str | None]:
-    """Drop the leading `[LINE] ...` / `保存日時：...` preamble block, if present,
-    and read the counterpart's name out of a `[LINE] {name}とのトーク履歴` title line.
+    """Drop the leading `[LINE] ...` / `保存日時：...` / `Saved on:...` preamble block,
+    if present, and read the counterpart's name out of a `[LINE] {name}とのトーク履歴`
+    or `[LINE] Chat history with {name}` title line.
 
     LINE's export title always names the *other* participant (it is always "my
     chat with X"), so this is a reliable signal for who to suggest as other_name.
@@ -78,7 +84,7 @@ def parse_header(raw: str) -> tuple[str, str | None]:
             break
         title_match = CHAT_TITLE_RE.match(stripped)
         if title_match:
-            chat_partner_name = title_match.group(1).strip()
+            chat_partner_name = (title_match.group(1) or title_match.group(2)).strip()
         index += 1
     return "\n".join(lines[index:]), chat_partner_name
 
@@ -257,12 +263,17 @@ def split_into_records(raw: str) -> list[RawRecord]:
                             else:
                                 name, text = None, stripped
 
-        deleted_with_name = DELETED_WITH_NAME_RE.match(text)
-        if deleted_with_name:
-            records.append(RawRecord(name=deleted_with_name.group(1).strip(), text=text, kind="system", date=current_date))
-            continue
-        if DELETED_NO_NAME_RE.match(text):
+        if DELETED_NO_NAME_RE.match(text) or UNSENT_NO_NAME_RE.match(text):
             records.append(RawRecord(name=None, text=text, kind="system", date=current_date))
+            continue
+        system_with_name = (
+            DELETED_WITH_NAME_RE.match(text)
+            or UNSENT_WITH_NAME_RE.match(text)
+            or ANNOUNCEMENT_WITH_NAME_RE.match(text)
+        )
+        if system_with_name:
+            system_name = ZERO_WIDTH_CHARACTERS_RE.sub("", system_with_name.group(1)).strip()
+            records.append(RawRecord(name=system_name, text=text, kind="system", date=current_date))
             continue
 
         if text.startswith('"') and text.count('"') % 2 == 1:
