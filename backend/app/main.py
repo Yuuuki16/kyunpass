@@ -325,23 +325,25 @@ LLM_RESPONSE_SCHEMA: dict[str, object] = {
         "kyun_messages": {"type": "array", "items": {"type": "string"}},
         "caution_messages": {"type": "array", "items": {"type": "string"}},
         "evaluation": {"type": "string"},
-        "timeline": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "date": {"type": "string"},
-                    **{
-                        key: {"type": "integer", "minimum": 0, "maximum": MAX_VARIABLE_SCORE}
-                        for key in LLM_VARIABLE_KEYS
-                    },
-                },
-                "required": ["date", *LLM_VARIABLE_KEYS],
-                "additionalProperties": False,
-            },
-        },
+        # きゅん度推移グラフの判定を一時停止中。再開する際はこのプロパティと
+        # 下の required への "timeline" 追加を元に戻すこと。
+        # "timeline": {
+        #     "type": "array",
+        #     "items": {
+        #         "type": "object",
+        #         "properties": {
+        #             "date": {"type": "string"},
+        #             **{
+        #                 key: {"type": "integer", "minimum": 0, "maximum": MAX_VARIABLE_SCORE}
+        #                 for key in LLM_VARIABLE_KEYS
+        #             },
+        #         },
+        #         "required": ["date", *LLM_VARIABLE_KEYS],
+        #         "additionalProperties": False,
+        #     },
+        # },
     },
-    "required": [*LLM_VARIABLE_KEYS, "kyun_messages", "caution_messages", "evaluation", "timeline"],
+    "required": [*LLM_VARIABLE_KEYS, "kyun_messages", "caution_messages", "evaluation"],
     "additionalProperties": False,
 }
 
@@ -414,13 +416,15 @@ def build_llm_prompt(
         return f"{date_prefix}[{name}] {m.text}"
 
     transcript = "\n".join(line(m) for m in messages)
-    dates = qualifying_dates(bucket_messages_by_date(messages))
-    timeline_instruction = (
-        f"- timeline: one entry per date in this exact list, using each date string exactly as written: {json.dumps(dates, ensure_ascii=False)}. "
-        f"For each date, score the same six variables (a-f, same integer 0-5 scale and meaning as above) using only {other_name}'s messages sent on that date within this excerpt."
-        if dates
-        else "- timeline: return an empty array (no dated messages were found in this excerpt)."
-    )
+    # きゅん度推移グラフの判定を一時停止中。再開する際は以下のコメントを解除し、
+    # プロンプトの {timeline_instruction} 参照も元に戻すこと。
+    # dates = qualifying_dates(bucket_messages_by_date(messages))
+    # timeline_instruction = (
+    #     f"- timeline: one entry per date in this exact list, using each date string exactly as written: {json.dumps(dates, ensure_ascii=False)}. "
+    #     f"For each date, score the same six variables (a-f, same integer 0-5 scale and meaning as above) using only {other_name}'s messages sent on that date within this excerpt."
+    #     if dates
+    #     else "- timeline: return an empty array (no dated messages were found in this excerpt)."
+    # )
     return f"""You are the analysis engine behind kyunpass. Its mission is to help {user_name} find out whether {other_name}'s feelings are pure (純粋) rather than calculated (打算的), so {user_name} can resolve romantic anxiety early and avoid trouble before it happens. Do not make {user_name} suspicious of or aggressive toward {other_name} for its own sake — the goal is protecting {user_name}, not "winning" the relationship or scoring technique.
 
 Analyze {other_name}'s (the OTHER speaker's) romantic intent toward {user_name} in this LINE conversation. Base the six scores strictly on the content of {other_name}'s own messages — {user_name}'s messages are provided only as context for what {other_name} was responding to, and must never themselves be scored or quoted. Every score and every quote must be traceable to a specific message actually sent by {other_name}.
@@ -432,7 +436,6 @@ Return JSON only:
 - integer 0-5 values for a, b, c, d, e, f (in that exact meaning and no other scoring keys)
 - kyun_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of respect/interest/relationship_building (empty array if none)
 - caution_messages: 1-{MAX_EVIDENCE_MESSAGES} verbatim quotes taken only from {other_name}'s own messages (never {user_name}'s) that are the clearest evidence of casual_sex_seeking/self_priority/relationship_ambiguity (empty array if none)
-{timeline_instruction}
 - evaluation: a short Japanese evaluation. If casual_sex_seeking, self_priority, or relationship_ambiguity is {DANGER_THRESHOLD} or higher, evaluation MUST clearly and gently warn {user_name} and encourage them to pause and be cautious (引き止める) instead of describing the situation neutrally — protect {user_name}, do not attack {other_name}. Otherwise, describe the positive signs found.
 Never use vulgar, graphic, or directly sexual wording anywhere in your response (evaluation text or quoted messages), even when quoting the conversation or describing casual_sex_seeking. Paraphrase or soften such wording instead, e.g. describe it as "身体的な関係を急いでいる" rather than using explicit terms.
 Relationship context:
@@ -498,17 +501,19 @@ def infer_with_llm(
             raise ValueError("LLM returned an empty evaluation.")
         kyun_messages = [str(text) for text in data.get("kyun_messages", [])]
         caution_messages = [str(text) for text in data.get("caution_messages", [])]
+        # きゅん度推移グラフの判定を一時停止中。LLM_RESPONSE_SCHEMA が "timeline" を
+        # 返さなくなったため常に空。再開する際は下のコメントを解除すること。
         timeline: dict[str, dict[str, int]] = {}
-        for entry in data.get("timeline", []):
-            if not isinstance(entry, dict) or "date" not in entry:
-                continue
-            try:
-                timeline[str(entry["date"])] = {
-                    variable_key: max(0, min(MAX_VARIABLE_SCORE, int(entry[llm_key])))
-                    for variable_key, llm_key in VARIABLE_TO_LLM_KEY.items()
-                }
-            except (KeyError, TypeError, ValueError):
-                continue
+        # for entry in data.get("timeline", []):
+        #     if not isinstance(entry, dict) or "date" not in entry:
+        #         continue
+        #     try:
+        #         timeline[str(entry["date"])] = {
+        #             variable_key: max(0, min(MAX_VARIABLE_SCORE, int(entry[llm_key])))
+        #             for variable_key, llm_key in VARIABLE_TO_LLM_KEY.items()
+        #         }
+        #     except (KeyError, TypeError, ValueError):
+        #         continue
         return LLMResult(variables, evaluation, kyun_messages, caution_messages, timeline)
     except Exception:
         logger.exception("LLM analysis failed; falling back to keyword-based scoring.")
@@ -737,19 +742,22 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         request.other_name,
     )
     if llm_result:
-        values, llm_evaluation, kyun_messages, caution_messages, llm_timeline = llm_result
+        # llm_timeline は build_timeline 呼び出しと合わせて一時停止中のため未使用。
+        values, llm_evaluation, kyun_messages, caution_messages, _llm_timeline = llm_result
         kyun_messages = verify_other_quotes(messages, kyun_messages)
         caution_messages = verify_other_quotes(messages, caution_messages)
     else:
         values, llm_evaluation = fallback_variables(messages), ""
         kyun_messages, caution_messages = fallback_evidence(messages)
-        llm_timeline = None
+        # llm_timeline は build_timeline 呼び出しと合わせて一時停止中のため未使用。
     kyun_messages = [mask_vulgar_words(text) for text in kyun_messages]
     caution_messages = [mask_vulgar_words(text) for text in caution_messages]
     g = float(period_entry["coefficient"]) * float(meeting_entry["coefficient"]) * float(relationship_entry["coefficient"])
     f_score = calculate_f(values)
     k = int(f_score * g)
-    timeline = build_timeline(messages, g, llm_timeline)
+    # きゅん度推移グラフの表示・判定を一時停止中。再開する際は下のコメントを解除すること。
+    # timeline = build_timeline(messages, g, llm_timeline)
+    timeline: list[TimelinePoint] = []
     evaluation = mask_vulgar_words(llm_evaluation or fallback_evaluation(k, values))
     return AnalyzeResponse(kyun_score=k, function_score=f_score, context_score=round(g, 3), variables=values, variable_labels=VARIABLE_LABELS, separated_messages=messages,
     similar_patterns=patterns, evaluation=evaluation, kyun_messages=kyun_messages, caution_messages=caution_messages, timeline=timeline, theme_evaluations=theme_evaluations(values))
