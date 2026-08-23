@@ -583,7 +583,10 @@ function ThemeEvaluation({
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const theme = THEMES[selectedIndex];
-  const dangerScore = Math.max(0, Math.min(100, variables[theme.key] ?? 0)*20);
+  const dangerScore = Math.max(
+    0,
+    Math.min(100, variables[theme.key] ?? 0) * 20,
+  );
   const animalType = getAnimalType(variables);
 
   return (
