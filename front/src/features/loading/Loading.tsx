@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Zen_Maru_Gothic } from "next/font/google";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
+import { KyunCatchGame } from "@/features/loading/KyunCatchGame";
 
 const zenMaruGothic = Zen_Maru_Gothic({
   weight: ["400", "700"],
@@ -35,6 +36,7 @@ export function Loading({ isComplete }: LoadingProps) {
   const router = useRouter();
   const [messageIndex, setMessageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [showGame, setShowGame] = useState(false);
   const startTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -80,56 +82,71 @@ export function Loading({ isComplete }: LoadingProps) {
       </div>
 
       <main className="relative z-10 grid min-h-[calc(100dvh-80px)] place-items-center px-6 py-10">
-        <section
-          className="flex h-[230px] w-[220px] flex-col items-center justify-center gap-[30px] rounded-[14px] bg-white text-[#8A8A8A] shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
-          role="status"
-          aria-live="polite"
-          aria-label={isComplete ? "分析が完了しました" : "分析しています"}
-        >
-          {isComplete ? (
-            <>
-              <p className="m-0 text-[28px] leading-10 font-bold text-[#D4537E]">
-                分析完了！
-              </p>
+        <div className="flex flex-col items-center gap-4">
+          <section
+            className="flex h-[230px] w-[220px] flex-col items-center justify-center gap-[30px] rounded-[14px] bg-white text-[#8A8A8A] shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+            role="status"
+            aria-live="polite"
+            aria-label={isComplete ? "分析が完了しました" : "分析しています"}
+          >
+            {isComplete ? (
+              <>
+                <p className="m-0 text-[28px] leading-10 font-bold text-[#D4537E]">
+                  分析完了！
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.push("/preresult")}
+                  className="h-12 w-[140px] rounded-lg bg-[#FF99B4] text-[20px] leading-none font-bold text-white shadow-[0_4px_4px_rgba(0,0,0,0.25)]"
+                >
+                  結果発表
+                </button>
+              </>
+            ) : (
+              <>
+                <div
+                  className="relative size-[84px] animate-[loading-spin_1.4s_linear_infinite] motion-reduce:animate-[loading-spin_3s_linear_infinite]"
+                  aria-hidden="true"
+                >
+                  {Array.from({ length: 8 }, (_, index) => (
+                    <span
+                      key={index}
+                      className="absolute top-0 left-[39px] h-[26px] w-[6px] origin-[3px_42px] rounded-full bg-[#D4537E]"
+                      style={{ transform: `rotate(${index * 45}deg)` }}
+                    />
+                  ))}
+                </div>
+                <div className="flex w-[170px] flex-col items-center gap-2.5">
+                  <p
+                    className="m-0 min-h-[40px] text-center text-[15px] leading-5 font-bold"
+                    aria-live="polite"
+                  >
+                    {STATUS_MESSAGES[messageIndex]}
+                  </p>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#EDEDED]">
+                    <div
+                      className="h-full rounded-full bg-[#D4537E] transition-[width] duration-200 ease-out motion-reduce:transition-none"
+                      style={{ width: `${isComplete ? 100 : progress}%` }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+
+          {!isComplete && (
+            <div className="flex w-[220px] flex-col items-center gap-3">
               <button
                 type="button"
-                onClick={() => router.push("/preresult")}
-                className="h-12 w-[140px] rounded-lg bg-[#FF99B4] text-[20px] leading-none font-bold text-white shadow-[0_4px_4px_rgba(0,0,0,0.25)]"
+                onClick={() => setShowGame((current) => !current)}
+                className="h-9 rounded-lg border border-[#FF99B4] bg-white px-4 text-[13px] font-bold text-[#D4537E]"
               >
-                結果発表
+                {showGame ? "ゲームをやめる" : "🎮 遊びながら待つ"}
               </button>
-            </>
-          ) : (
-            <>
-              <div
-                className="relative size-[84px] animate-[loading-spin_1.4s_linear_infinite] motion-reduce:animate-[loading-spin_3s_linear_infinite]"
-                aria-hidden="true"
-              >
-                {Array.from({ length: 8 }, (_, index) => (
-                  <span
-                    key={index}
-                    className="absolute top-0 left-[39px] h-[26px] w-[6px] origin-[3px_42px] rounded-full bg-[#D4537E]"
-                    style={{ transform: `rotate(${index * 45}deg)` }}
-                  />
-                ))}
-              </div>
-              <div className="flex w-[170px] flex-col items-center gap-2.5">
-                <p
-                  className="m-0 min-h-[40px] text-center text-[15px] leading-5 font-bold"
-                  aria-live="polite"
-                >
-                  {STATUS_MESSAGES[messageIndex]}
-                </p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#EDEDED]">
-                  <div
-                    className="h-full rounded-full bg-[#D4537E] transition-[width] duration-200 ease-out motion-reduce:transition-none"
-                    style={{ width: `${isComplete ? 100 : progress}%` }}
-                  />
-                </div>
-              </div>
-            </>
+              {showGame && <KyunCatchGame />}
+            </div>
           )}
-        </section>
+        </div>
       </main>
     </div>
   );
