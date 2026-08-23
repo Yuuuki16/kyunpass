@@ -339,7 +339,7 @@ const ANIMAL_TYPES = {
 
 function getAnimalType(variables: Record<string, number>): AnimalType {
   const isHigh = (key: (typeof THEMES)[number]["key"]) =>
-    (variables[key] ?? 0) >= 50;
+    (variables[key] ?? 0) * 20 >= 50;
   const animalKey =
     `${isHigh("casual_sex_seeking") ? 1 : 0}${isHigh("self_priority") ? 1 : 0}${isHigh("relationship_ambiguity") ? 1 : 0}` as keyof typeof ANIMAL_TYPES;
 
@@ -587,7 +587,10 @@ function ThemeEvaluation({
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const theme = THEMES[selectedIndex];
-  const dangerScore = Math.max(0, Math.min(100, variables[theme.key] ?? 0));
+  const dangerScore = Math.max(
+    0,
+    Math.min(100, variables[theme.key] ?? 0) * 20,
+  );
   const animalType = getAnimalType(variables);
 
   return (
