@@ -1,4 +1,4 @@
-from app.line_parser import parse, suggest_speaker_names
+from app.line_parser import parse, parse_header, suggest_speaker_names
 
 REAL_EXPORT_SAMPLE = (
     "[LINE] 花子とのトーク履歴\n"
@@ -150,3 +150,61 @@ def test_inferrs_sender_roles_from_the_chat_title_when_one_name_is_unmatched() -
     result = parse(raw, user_name="自分", other_name="相手")
 
     assert [message.speaker for message in result.messages] == ["OTHER", "USER"]
+
+
+REAL_EXPORT_SAMPLE_EN = (
+    "[LINE] Chat history with 花子\n"
+    "Saved on: 2026/08/21, 11:59\n"
+    "\n"
+    "2025/04/18 Fri\n"
+    "12:08\t花子\tお疲れ様です！\n"
+    "14:13\t太郎\t振り込み完了しました\n"
+    "21:38\t花子\t☎ Missed call\n"
+    "22:05\t\tYou unsent a message.\n"
+    "22:10\t\t⁨⁨花子⁩⁩ unsent a message.\n"
+    "22:15\t\t⁨⁨太郎⁩⁩ made an announcement.\n"
+)
+
+
+def test_english_export_header_and_title_are_recognized() -> None:
+    result = parse(REAL_EXPORT_SAMPLE_EN, user_name="太郎", other_name="花子")
+
+    assert all("Chat history with" not in m.text for m in result.messages)
+    assert all("Saved on" not in m.text for m in result.messages)
+    assert all(m.text != "2025/04/18 Fri" for m in result.messages)
+
+
+def test_english_export_messages_get_the_english_date_header() -> None:
+    result = parse(REAL_EXPORT_SAMPLE_EN, user_name="太郎", other_name="花子")
+
+    assert all(m.date == "2025-04-18" for m in result.messages)
+
+
+def test_english_export_infers_other_name_from_chat_history_with_title() -> None:
+    _, chat_partner_name = parse_header(REAL_EXPORT_SAMPLE_EN)
+
+    assert chat_partner_name == "花子"
+
+
+def test_english_unsent_message_without_name_is_unknown_speaker() -> None:
+    result = parse(REAL_EXPORT_SAMPLE_EN, user_name="太郎", other_name="花子")
+    deleted = next(m for m in result.messages if m.text == "You unsent a message.")
+
+    assert deleted.kind == "system"
+    assert deleted.speaker == "UNKNOWN"
+
+
+def test_english_unsent_message_with_embedded_name_gets_that_speaker() -> None:
+    result = parse(REAL_EXPORT_SAMPLE_EN, user_name="太郎", other_name="花子")
+    deleted = next(m for m in result.messages if "花子" in m.text and m.text.endswith("unsent a message."))
+
+    assert deleted.kind == "system"
+    assert deleted.speaker == "OTHER"
+
+
+def test_english_announcement_with_embedded_name_gets_that_speaker() -> None:
+    result = parse(REAL_EXPORT_SAMPLE_EN, user_name="太郎", other_name="花子")
+    announcement = next(m for m in result.messages if m.text.endswith("made an announcement."))
+
+    assert announcement.kind == "system"
+    assert announcement.speaker == "USER"
