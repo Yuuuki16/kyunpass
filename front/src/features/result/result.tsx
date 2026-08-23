@@ -133,10 +133,12 @@ function subscribe(callback: () => void): () => void {
   return () => window.removeEventListener("storage", callback);
 }
 
-function formatShortDate(date: string): string {
-  const [year, month, day] = date.split("-");
-  return `${year.slice(2)}/${month}/${day}`;
-}
+// きゅん度推移グラフの表示を一時停止中。再開する際はこの関数と
+// smoothPath / TimelineChart、Result内の該当セクションのコメントを解除すること。
+// function formatShortDate(date: string): string {
+//   const [year, month, day] = date.split("-");
+//   return `${year.slice(2)}/${month}/${day}`;
+// }
 
 function getScoreProfile(score: number): {
   position: string;
@@ -172,6 +174,7 @@ function getScoreProfile(score: number): {
   return { position: "下位 約2.3%", rank: "F" };
 }
 
+/* きゅん度推移グラフの表示を一時停止中。再開する際はこのブロックのコメントを解除すること。
 function smoothPath(coords: { x: number; y: number }[]): string {
   if (coords.length < 3) {
     return coords
@@ -274,6 +277,7 @@ function TimelineChart({ points }: { points: TimelinePoint[] }) {
     </svg>
   );
 }
+*/
 
 const THEMES = [
   { key: "casual_sex_seeking", label: "身体的な関係" },
@@ -828,6 +832,7 @@ export function Result({ initialResult }: ResultProps) {
 
         <ThemeEvaluation variables={variables} evaluations={themeEvaluations} />
 
+        {/* きゅん度推移グラフの表示を一時停止中。再開する際はこのコメントを解除すること。
         {timeline.length >= 2 && (
           <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col items-center rounded-lg bg-white p-4">
             <h2 className="w-[220px] max-w-full text-[16px] leading-[23px] font-bold text-[#D4537E]">
@@ -842,6 +847,7 @@ export function Result({ initialResult }: ResultProps) {
             </div>
           </section>
         )}
+        */}
 
         <section className="mt-[24px] flex w-[calc(100%_-_52px)] max-w-[300px] flex-col gap-4 rounded-lg bg-white p-4">
           <div>

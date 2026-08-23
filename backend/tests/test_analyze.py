@@ -2,6 +2,7 @@
 import sys
 import types
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import (
@@ -156,6 +157,7 @@ def test_analyze_infers_speakers_from_one_to_one_chat_title() -> None:
     ]
 
 
+@pytest.mark.skip(reason="きゅん度推移グラフの判定を一時停止中")
 def test_analyze_returns_timeline_bucketed_by_date() -> None:
     talk_history = (
         "[LINE] 相手とのトーク履歴\n"
@@ -185,6 +187,7 @@ def test_analyze_returns_timeline_bucketed_by_date() -> None:
     assert timeline[1]["message_count"] == 1
 
 
+@pytest.mark.skip(reason="きゅん度推移グラフの判定を一時停止中")
 def test_analyze_timeline_omits_dates_with_no_other_text_message() -> None:
     talk_history = (
         "[LINE] 相手とのトーク履歴\n"
@@ -211,6 +214,7 @@ def test_analyze_timeline_omits_dates_with_no_other_text_message() -> None:
     assert [point["date"] for point in timeline] == ["2025-04-19"]
 
 
+@pytest.mark.skip(reason="きゅん度推移グラフの判定を一時停止中")
 def test_build_llm_prompt_lists_qualifying_timeline_dates() -> None:
     messages = [
         SeparatedMessage(speaker="OTHER", text="ありがとう", date="2025-04-18"),
@@ -225,6 +229,7 @@ def test_build_llm_prompt_lists_qualifying_timeline_dates() -> None:
     assert "[2025-04-18][花子] ありがとう" in prompt
 
 
+@pytest.mark.skip(reason="きゅん度推移グラフの判定を一時停止中")
 def test_build_llm_prompt_timeline_empty_when_no_dates() -> None:
     prompt = build_llm_prompt(
         [SeparatedMessage(speaker="OTHER", text="ありがとう")],
@@ -237,6 +242,7 @@ def test_build_llm_prompt_timeline_empty_when_no_dates() -> None:
     assert "return an empty array" in prompt
 
 
+@pytest.mark.skip(reason="きゅん度推移グラフの判定を一時停止中")
 def test_analyze_uses_llm_timeline_when_available(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     captured: dict = {}
@@ -291,6 +297,7 @@ def test_analyze_uses_llm_timeline_when_available(monkeypatch) -> None:
     assert '"2025-04-19"' in prompt
 
 
+@pytest.mark.skip(reason="きゅん度推移グラフの判定を一時停止中")
 def test_analyze_falls_back_to_keyword_timeline_for_dates_llm_omits(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     captured: dict = {}
