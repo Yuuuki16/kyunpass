@@ -285,6 +285,19 @@ const THEMES = [
   { key: "relationship_ambiguity", label: "関係の曖昧さ" },
 ] as const;
 
+function getStableDangerOffset(value: number, seed: string): number {
+  const min = value <= 0 ? 0 : -9;
+  const max = value >= 5 ? 0 : 9;
+  let hash = 2166136261;
+
+  for (const character of seed) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return min + ((hash >>> 0) % (max - min + 1));
+}
+
 type AnimalId =
   "penguin" | "cat" | "koala" | "fox" | "lion" | "dolphin" | "wolf" | "panther";
 
@@ -587,9 +600,20 @@ function ThemeEvaluation({
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const theme = THEMES[selectedIndex];
+  const dangerSeed = Object.entries(variables)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}:${value}`)
+    .join("|");
   const dangerScore = Math.max(
     0,
-    Math.min(100, variables[theme.key] ?? 0) * 20,
+    Math.min(
+      100,
+      (variables[theme.key] ?? 0) * 20 +
+        getStableDangerOffset(
+          variables[theme.key] ?? 0,
+          `${dangerSeed}:${theme.key}`,
+        ),
+    ),
   );
   const animalType = getAnimalType(variables);
 
