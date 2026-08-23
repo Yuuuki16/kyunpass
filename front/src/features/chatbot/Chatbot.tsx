@@ -9,6 +9,7 @@ import {
   beginAnalysisRequest,
   endAnalysisRequest,
   isAbortError,
+  limitToLastLines,
 } from "@/lib/analysisRequest";
 
 const zenMaruGothic = Zen_Maru_Gothic({
@@ -170,7 +171,9 @@ export function Chatbot() {
 
     const controller = beginAnalysisRequest();
     try {
-      const talkHistory = sessionStorage.getItem("kyunpass:talkHistory") ?? "";
+      const talkHistory = limitToLastLines(
+        sessionStorage.getItem("kyunpass:talkHistory") ?? "",
+      );
       const userName = sessionStorage.getItem("kyunpass:userName") ?? "";
       const otherName = sessionStorage.getItem("kyunpass:otherName") ?? "";
 
