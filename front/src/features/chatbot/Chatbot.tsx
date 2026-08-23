@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { Zen_Maru_Gothic } from "next/font/google";
+import {
+  beginAnalysisRequest,
+  endAnalysisRequest,
+  isAbortError,
+} from "@/lib/analysisRequest";
 
 const zenMaruGothic = Zen_Maru_Gothic({
   weight: ["400", "700"],
@@ -163,6 +168,7 @@ export function Chatbot() {
     setIsConfirmed(true);
     router.push("/loading");
 
+    const controller = beginAnalysisRequest();
     try {
       const talkHistory = sessionStorage.getItem("kyunpass:talkHistory") ?? "";
       const userName = sessionStorage.getItem("kyunpass:userName") ?? "";
@@ -187,6 +193,7 @@ export function Chatbot() {
             context,
             talk_history: talkHistory,
           }),
+          signal: controller.signal,
         },
       );
 
@@ -234,6 +241,10 @@ export function Chatbot() {
 
       router.replace("/loading?complete=1");
     } catch (error) {
+      // A user-initiated cancel from the loading screen already navigated
+      // away and set its own message; nothing left to do here.
+      if (isAbortError(error)) return;
+
       sessionStorage.setItem(
         "kyunpass:errorMessage",
         error instanceof Error
@@ -241,6 +252,8 @@ export function Chatbot() {
           : "分析に失敗しました。もう一度お試しください。",
       );
       router.replace("/");
+    } finally {
+      endAnalysisRequest(controller);
     }
   };
 
