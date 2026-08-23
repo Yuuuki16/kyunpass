@@ -6,6 +6,7 @@ import { Zen_Maru_Gothic } from "next/font/google";
 import { Wave } from "@/components/Wave/Wave";
 import { Header } from "@/components/header/Header";
 import { KyunCatchGame } from "@/features/loading/KyunCatchGame";
+import { cancelAnalysisRequest } from "@/lib/analysisRequest";
 
 const zenMaruGothic = Zen_Maru_Gothic({
   weight: ["400", "700"],
@@ -38,6 +39,12 @@ export function Loading({ isComplete }: LoadingProps) {
   const [progress, setProgress] = useState(0);
   const [showGame, setShowGame] = useState(false);
   const startTimeRef = useRef<number | null>(null);
+
+  const handleCancel = () => {
+    cancelAnalysisRequest();
+    sessionStorage.setItem("kyunpass:errorMessage", "分析を中止しました。");
+    router.replace("/");
+  };
 
   useEffect(() => {
     if (isComplete) return;
@@ -144,6 +151,13 @@ export function Loading({ isComplete }: LoadingProps) {
                 {showGame ? "ゲームをやめる" : "🎮 遊びながら待つ"}
               </button>
               {showGame && <KyunCatchGame />}
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="h-9 rounded-lg px-4 text-[13px] font-bold text-[#8A8A8A] underline underline-offset-2"
+              >
+                分析を中止する
+              </button>
             </div>
           )}
         </div>
