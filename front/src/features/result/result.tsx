@@ -794,7 +794,7 @@ export function Result({ initialResult }: ResultProps) {
             判定理由
           </h2>
 
-          <div className="mt-2 h-[150px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 overflow-y-auto rounded-[20px] border border-[#F5B6D2] bg-[#FFF5FA] px-4 py-3 text-left text-[16px] leading-[1.8] text-[#555555]">
+          <div className="mt-2 max-h-[420px] w-[220px] max-w-[calc(100%_-_48px)] shrink-0 overflow-y-auto rounded-[20px] border border-[#F5B6D2] bg-[#FFF5FA] px-4 py-3 text-left text-[16px] leading-[1.8] text-[#555555]">
             {evaluation}
           </div>
 
